@@ -89,9 +89,17 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
+    int base_priority;                  /* Base priority. */
+    struct list locks;                  /* Locks that the thread is holding. */
+    struct lock *lock_waiting;          /* The lock that the thread is waiting for. */
+    int nice;                           /* Niceness. */
+    int recent_cpu;                     /* Recent CPU. */
+    int64_t sleep_end;
+
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+    struct list_elem sleep_elem;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -100,6 +108,9 @@ struct thread
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+
+
+
   };
 
 /* If false (default), use round-robin scheduler.
@@ -116,6 +127,8 @@ void thread_print_stats (void);
 typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
+void thread_sleep (int end);
+void thread_wake (int ticks);
 void thread_block (void);
 void thread_unblock (struct thread *);
 
@@ -138,4 +151,13 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
+void check_block(struct thread *, void *);
+bool thread_cmp_priority (const struct list_elem *, const struct list_elem *, void *);
+void thread_donate_priority (struct thread *);
+void donate_priority (void);
+void thread_hold_the_lock(struct lock *);
+void cur_increase_recent_cpu_by_one (struct thread *t);
+void each_update_load_avg_and_recent_cpu (void);
+void cur_update_priority (struct thread *t);
+void test_max_priority (void);
 #endif /* threads/thread.h */
