@@ -26,6 +26,7 @@ Yifeng  Zhang <zhangyf@shanghaitech.edu.cn>
   3. http://www.cnblogs.com/laiy/p/pintos_project1_thread.html
   4. https://github.com/ilyanep/pintos-awesome
   5. https://w3.cs.jmu.edu/kirkpams/450-f11/slides/pintos.pdf
+  6. https://github.com/muhammadzaheer/pintOS
 
 
 
@@ -339,7 +340,7 @@ problems encountered and new ideas for solutions.
 We defined SHAMT(shift amount) and a bunch of static functions in thread.c, which
 are only visible to other functions in the same file.
 
-We did it like this because it is pretty straightforward - we only have to call
+We did it like this because it is pretty easy to debug - we only have to call
 the corresponding fixed-point function, instead of typing all the formulas. For
 the extremely simple formulas (like fixed-point times integer), we just typed
 them instead of making them functions.
