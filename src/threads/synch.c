@@ -204,7 +204,7 @@ lock_acquire (struct lock *lock)
 
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
-  ASSERT (!lock_held_by_cur (lock));
+  ASSERT (!lock_held_by_current_thread (lock));
 
   if (lock->holder != NULL && !thread_mlfqs)
   {
