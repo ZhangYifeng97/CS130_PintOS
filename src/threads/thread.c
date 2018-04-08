@@ -38,32 +38,32 @@
 #define SHAMT 14
 static int F = (1 << SHAMT);
 
-static int INT2FP(int n) {
+static int int2fp(int n) {
   return n * F;
 }
 
 
-static int FP_MUL_FP(int x, int y) {
+static int fp_mul_fp(int x, int y) {
   return ((int64_t) x) * y / F;
 }
 
-static int FP_DIV_FP(int x, int y) {
+static int fp_div_fp(int x, int y) {
   return (((int64_t) x) * F) / y;
 }
 
-static int FP_ADD_INT(int x, int n) {
+static int fp_add_int(int x, int n) {
   return x + (n * F);
 }
-static int FP_SUB_INT(int x, int n) {
+static int fp_sub_int(int x, int n) {
   return x - (n * F);
 }
 
 
-static int GET_FP_INT(int n) {
+static int get_fp_int(int n) {
   return n >> SHAMT;
 }
 
-static int FP_TO_INT_NEAREST(int x) {
+static int fp_to_int_nearest(int x) {
   return x >= 0 ? ((x + (1 << (SHAMT - 1))) >> SHAMT) : ((x - (1 << (SHAMT - 1))) >> SHAMT);
 }
 
@@ -153,14 +153,13 @@ thread_init (void)
 }
 
 
-
-/* priority compare function. */
 bool
-thread_cmp_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+thread_cmp_priority (const struct list_elem *elem1, const struct list_elem *elem2, void *aux UNUSED)
 {
-  return list_entry(a, struct thread, elem)->priority > list_entry(b, struct thread, elem)->priority;
+  struct thread *thrd1 = list_entry(elem1, struct thread, elem);
+  struct thread *thrd2 = list_entry(elem2, struct thread, elem);
+  return (thrd1->priority > thrd2->priority);
 }
-
 
 
 
@@ -411,19 +410,25 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority)
 {
+  /* When mlfqs is invoked, thread_set_priority should be disabled */
   if (thread_mlfqs)
     return;
 
   enum intr_level old_level = intr_disable ();
 
   struct thread *cur = thread_current ();
+
+  /* Store the current priority for comparision */
   int old_priority = cur->priority;
   cur->base_priority = new_priority;
   thread_update_priority(cur);
-  if (old_priority < thread_current()->priority)
+
+  /* If the new priority increases, donate it */
+  if (old_priority < cur->priority)
     donate_priority();
-  // If new priority is less, test if the processor should be yielded
-  if (old_priority > thread_current()->priority)
+
+  /* If it decreases, test if it is the maximum priority */
+  if (old_priority > cur->priority)
     test_max_priority();
 
   intr_set_level (old_level);
@@ -443,6 +448,8 @@ thread_set_nice (int nice)
   struct thread *cur = thread_current();
   cur->nice = nice;
   cur_update_priority (cur);
+
+  /* If its priority is not the maximum one, yield */
   test_max_priority();
 }
 
@@ -460,7 +467,7 @@ cur_increase_recent_cpu_by_one (struct thread *thrd)
 {
   if (thrd == idle_thread)
     return;
-  thrd->recent_cpu = FP_ADD_INT (thrd->recent_cpu, 1);
+  thrd->recent_cpu = fp_add_int (thrd->recent_cpu, 1);
 }
 
 
@@ -473,7 +480,7 @@ each_update_load_avg_and_recent_cpu (void)
     ready_threads++;
 
   /* load_avg = (59/60)*load_avg + (1/60)*ready_threads */
-  load_avg = load_avg* 59 / 60 + INT2FP (ready_threads) / 60;
+  load_avg = load_avg* 59 / 60 + int2fp (ready_threads) / 60;
 
   struct list_elem *cur = list_begin (&all_list);
   while (cur != list_end (&all_list))
@@ -481,7 +488,8 @@ each_update_load_avg_and_recent_cpu (void)
     struct thread *thrd = list_entry(cur, struct thread, allelem);
     if (thrd != idle_thread)
     {
-      thrd->recent_cpu = FP_ADD_INT (FP_MUL_FP (FP_DIV_FP (load_avg * 2, FP_ADD_INT (load_avg* 2, 1)), thrd->recent_cpu), thrd->nice);
+      /* recent_cpu = (2*load_avg)/(2*load_avg + 1) * recent_cpu + nice */
+      thrd->recent_cpu = fp_add_int (fp_mul_fp (fp_div_fp (load_avg * 2, fp_add_int (load_avg* 2, 1)), thrd->recent_cpu), thrd->nice);
       cur_update_priority (thrd);
     }
     cur = list_next (cur);
@@ -497,7 +505,10 @@ cur_update_priority (struct thread *thrd)
   if (thrd == idle_thread)
     return;
 
-  int calculated_priority = GET_FP_INT (FP_SUB_INT (INT2FP (PRI_MAX) - thrd->recent_cpu / 4, 2 * thrd->nice));
+  /* priority = PRI_MAX - (recent_cpu / 4) - (nice * 2) */
+  int calculated_priority = get_fp_int (fp_sub_int (int2fp (PRI_MAX) - thrd->recent_cpu / 4, 2 * thrd->nice));
+
+  /* Deal with too big or y */
   if (calculated_priority > PRI_MAX)
     thrd->priority = PRI_MAX;
   else if (calculated_priority < PRI_MIN)
@@ -514,14 +525,14 @@ cur_update_priority (struct thread *thrd)
 int
 thread_get_load_avg (void)
 {
-  return FP_TO_INT_NEAREST (load_avg* 100);
+  return fp_to_int_nearest (load_avg* 100);
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void)
 {
-  return FP_TO_INT_NEAREST (thread_current ()->recent_cpu * 100);
+  return fp_to_int_nearest (thread_current ()->recent_cpu * 100);
 }
 /* Idle thread.  Executes when no other thread is ready to run.
 
@@ -750,17 +761,15 @@ thread_donate_priority (struct thread *t)
 void
 test_max_priority (void)
 {
-  if ( list_empty(&ready_list) )
+  /* If there are no elements in ready_list, then testing is unnseccessary */
+  if (list_empty(&ready_list))
     return;
-  struct thread *t = list_entry(list_front(&ready_list), struct thread, elem);
-  if (intr_context())
-  {
-    thread_ticks++;
-    if ( thread_current()->priority < t->priority || (thread_ticks >= TIME_SLICE && thread_current()->priority == t->priority) )
-      intr_yield_on_return();
-    return;
-  }
-  if (thread_current()->priority < t->priority)
+
+  /* Get the thread with the maximum priority */
+  struct thread *thrd = list_entry(list_front(&ready_list), struct thread, elem);
+
+  /* If the priority of the current thread is not the maximum, yield */
+  if (thread_current()->priority < thrd->priority)
     thread_yield();
 }
 
@@ -769,19 +778,25 @@ void
 donate_priority (void)
 {
   int depth = 0;
-  struct thread *t = thread_current();
-  struct lock *l = t->lock_waiting;
-  while (l && depth < 9999)
+  struct thread *thrd = thread_current();
+  struct lock *lock = thrd->lock_waiting;
+  while (lock)
   {
-    depth++;
-    // If lock is not being held, return
-    if (!l->holder)
+    if (depth > 10)
       return;
-    if (l->holder->priority >= t->priority)
+    depth++;
+
+    /* If the lock is not held by any thread, return */
+    if (!lock->holder)
       return;
 
-    l->holder->priority = t->priority;
-    t = l->holder;
-    l = t->lock_waiting;
+    /* If the holder of the lock has higher priority, return */
+    if (lock->holder->priority >= thrd->priority)
+      return;
+
+    /* Set the priority of the holder of the lock */
+    lock->holder->priority = thrd->priority;
+    thrd = lock->holder;
+    lock = thrd->lock_waiting;
   }
 }

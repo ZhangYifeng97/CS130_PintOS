@@ -242,7 +242,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
       each_update_load_avg_and_recent_cpu ();
 
     /* For each 4 ticks, update the priority for non-idle thread */
-    else if (ticks % 4 == 0)
+    if (ticks % 4 == 0)
       cur_update_priority (cur);
   }
 

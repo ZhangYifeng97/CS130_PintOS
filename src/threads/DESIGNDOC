@@ -248,6 +248,12 @@ thread.h:
 
   An estimate of the CPU time the thread has used recently.
 
+thread.c:
+
+  int load_avg;
+
+  The average load of the OS.
+
 ---- ALGORITHMS ----
 
 >> C2: Suppose threads A, B, and C have nice values 0, 1, and 2.  Each
@@ -277,13 +283,21 @@ ticks   A   B   C   A   B   C   to run
 >> in the table uncertain?  If so, what rule did you use to resolve
 >> them?  Does this match the behavior of your scheduler?
 
+thread_cmp_priority
+
 Yes.
 Break ties with the following rules:
   1. Obviously, whoever has the highest priority goes first
   2. If multiple threads have the same priority, the thread who is the first one
-     to hold this priority value goes first. For example, if after a tick, A's
-     priority goes from 60 to 59, and B's priority had become 59 before that
-     tick, then B goes first.
+     to hold this priority value goes first, because the compare function only
+     returns true when elem1 < elem2 (indicating that elem1 should be put after
+     elem 2). For example, for the 24th timer tick in the above table, the three
+     threads share the same priority. On the 20th timer tick, A was run, so A
+     was pushed to the back of the list on the 24th timer tick. B was run on the
+     16th timer tick, so B should be in front of A. However, C has never been
+     run, and has always been in the priority queue, so C should be the first.
+This matched my scheduler.
+
 
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
@@ -307,8 +321,11 @@ Advantages:
   rules for Procedure Oriented Programming.
 
 Disadvantages:
-
   We did not modularize the code we wrote, so it seems rather chaotic.
+
+We would choose to start earlier than we did this time, to get more time so that
+we can look for materials online, and talk with TAs and classmates about the
+problems encountered and new ideas for solutions.
 
 
 >> C6: The assignment explains arithmetic for fixed-point math in

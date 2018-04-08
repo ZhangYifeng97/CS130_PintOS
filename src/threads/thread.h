@@ -152,7 +152,7 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 void check_block(struct thread *, void *);
-bool thread_cmp_priority (const struct list_elem *, const struct list_elem *, void *);
+bool thread_cmp_priority (const struct list_elem *elem1, const struct list_elem *elem2, void *aux UNUSED);
 void thread_donate_priority (struct thread *);
 void donate_priority (void);
 void thread_hold_the_lock(struct lock *);
