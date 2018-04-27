@@ -353,13 +353,13 @@ thread_tid (void)
 /* Deschedules the current thread and destroys it.  Never
    returns to the caller. */
 void
-thread_exit (void)
+thread_exit (int status)
 {
   ASSERT (!intr_context ());
 
-#ifdef USERPROG
-  process_exit ();
-#endif
+  #ifdef USERPROG
+    process_exit (status);
+  #endif
 
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
@@ -580,7 +580,7 @@ kernel_thread (thread_func *function, void *aux)
 
   intr_enable ();       /* The scheduler runs with interrupts off. */
   function (aux);       /* Execute the thread function. */
-  thread_exit ();       /* If function() returns, kill the thread. */
+  thread_exit (0);       /* If function() returns, kill the thread. */
 }
 
 /* Returns the running thread. */
@@ -800,3 +800,38 @@ donate_priority (void)
     lock = thrd->lock_waiting;
   }
 }
+
+
+
+
+#ifdef USERPROG
+  /* Owned by userprog/process.c. */
+  struct thread *
+  thread_get(tid_t tid)
+  {
+    struct list_elem *e;
+    struct thread * dest_thread = NULL;
+    enum intr_level old_level;
+
+    old_level = intr_disable ();
+    for (e = list_begin (&all_list); e != list_end (&all_list);
+         e = list_next (e))
+      {
+        struct thread *t = list_entry (e, struct thread, allelem);
+        if (tid == t->tid){
+          dest_thread = t;
+          break;
+        }
+      }
+    intr_set_level (old_level);
+    return dest_thread;
+  }
+
+  bool thread_is_parent_of(tid_t tid){
+    struct thread *t = thread_get(tid);
+    if(t == NULL || t->parent_tid != thread_tid()){
+      return false;
+    }
+    return true;
+  }
+#endif

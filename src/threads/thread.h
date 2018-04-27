@@ -104,6 +104,14 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+
+    char *prog_name;
+    tid_t parent_tid;
+    struct list desc_table;
+    int next_fd;
+    struct file *executable; // file structure referring the the executable, used to deny writing to the file as long as the process is running(and close it upon exit)
+
+
 #endif
 
     /* Owned by thread.c. */
@@ -136,7 +144,7 @@ struct thread *thread_current (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
 
-void thread_exit (void) NO_RETURN;
+void thread_exit (int status) NO_RETURN;
 void thread_yield (void);
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
@@ -160,4 +168,13 @@ void cur_increase_recent_cpu_by_one (struct thread *t);
 void each_update_load_avg_and_recent_cpu (void);
 void cur_update_priority (struct thread *t);
 void test_max_priority (void);
+
+
+#ifdef USERPROG
+  /* Owned by userprog/process.c. */
+  struct thread *thread_get(tid_t tid);
+  bool thread_is_parent_of(tid_t tid);
+#endif
+
+
 #endif /* threads/thread.h */
