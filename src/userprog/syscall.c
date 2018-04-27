@@ -274,46 +274,150 @@ kill_program (void)
   thread_exit (-1);
 }
 
+
+
+
+
 static void
 syscall_handler (struct intr_frame *f)
 {
-
   if ( !is_valid_pointer (f->esp, 4) )
     {
-      kill_program();
+      kill_program ();
       return;
     }
   int syscall_num = * (int *)f->esp;
-
   if ( syscall_num < 0 || syscall_num >= 20 )
     {
-      kill_program();
+      kill_program ();
       return;
     }
 
-  /* Invoke system calls in IF statement */
-  if ( syscall_handlers[syscall_num](f) == -1 )
+  switch(syscall_num)
+  {
+    case SYS_EXIT:
     {
-      kill_program();
-      return;
+      if ( syscall_exit_wrapper(f) == -1 )
+        {
+         kill_program ();
+         return;
+        }
+      break;
     }
+    case SYS_WRITE:
+    {
+      if ( syscall_write_wrapper(f) == -1 )
+        {
+         kill_program ();
+         return;
+        }
+      break;
+    }
+    case SYS_EXEC:
+    {
+      if ( syscall_exec_wrapper(f) == -1 )
+        {
+         kill_program ();
+         return;
+        }
+      break;
+    }
+
+    case SYS_HALT:
+    {
+      if ( syscall_halt_wrapper(f) == -1 )
+        {
+         kill_program ();
+         return;
+        }
+      break;
+    }
+    case SYS_WAIT:
+    {
+      if ( syscall_wait_wrapper(f) == -1 )
+        {
+         kill_program ();
+         return;
+        }
+      break;
+    }
+    case SYS_CREATE:
+    {
+      if ( syscall_create_wrapper(f) == -1 )
+        {
+         kill_program ();
+         return;
+        }
+      break;
+    }
+    case SYS_REMOVE:
+    {
+      if ( syscall_remove_wrapper(f) == -1 )
+        {
+         kill_program ();
+         return;
+        }
+      break;
+    }
+    case SYS_OPEN:
+    {
+      if ( syscall_open_wrapper(f) == -1 )
+        {
+         kill_program ();
+         return;
+        }
+      break;
+    }
+    case SYS_CLOSE:
+    {
+      if ( syscall_close_wrapper(f) == -1 )
+        {
+         kill_program ();
+         return;
+        }
+      break;
+    }
+    case SYS_READ:
+    {
+      if ( syscall_read_wrapper(f) == -1 )
+        {
+         kill_program ();
+         return;
+        }
+      break;
+    }
+    case SYS_FILESIZE:
+    {
+      if ( syscall_filesize_wrapper(f) == -1 )
+        {
+         kill_program ();
+         return;
+        }
+      break;
+    }
+    case SYS_SEEK:
+    {
+      if ( syscall_seek_wrapper(f)== -1 )
+        {
+         kill_program ();
+         return;
+        }
+      break;
+    }
+    case SYS_TELL:
+    {
+      if ( syscall_tell_wrapper(f) == -1 )
+        {
+         kill_program ();
+         return;
+        }
+      break;
+    }
+  }
 }
 
 void
 syscall_init (void)
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-  syscall_handlers[SYS_EXIT] = &syscall_exit_wrapper;
-  syscall_handlers[SYS_WRITE] = &syscall_write_wrapper;
-  syscall_handlers[SYS_EXEC] = &syscall_exec_wrapper;
-  syscall_handlers[SYS_HALT] = &syscall_halt_wrapper;
-  syscall_handlers[SYS_WAIT] = &syscall_wait_wrapper;
-  syscall_handlers[SYS_CREATE] = &syscall_create_wrapper;
-  syscall_handlers[SYS_REMOVE] = &syscall_remove_wrapper;
-  syscall_handlers[SYS_OPEN] = &syscall_open_wrapper;
-  syscall_handlers[SYS_CLOSE] = &syscall_close_wrapper;
-  syscall_handlers[SYS_READ] = &syscall_read_wrapper;
-  syscall_handlers[SYS_FILESIZE] = &syscall_filesize_wrapper;
-  syscall_handlers[SYS_SEEK] = &syscall_seek_wrapper;
-  syscall_handlers[SYS_TELL] = &syscall_tell_wrapper;
 }

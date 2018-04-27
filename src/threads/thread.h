@@ -105,11 +105,14 @@ struct thread
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
 
-    char *prog_name;
-    tid_t parent_tid;
-    struct list desc_table;
-    int next_fd;
-    struct file *executable; // file structure referring the the executable, used to deny writing to the file as long as the process is running(and close it upon exit)
+    char *prog_name;                    /* The name of the running program for this thread */
+    tid_t parent_tid;                   /* The tid of the parent thread */
+    struct list desc_table;             /* The list of the files opened by this thread */
+    int next_fd;                        /* The file descriptor for the next file to be opened */
+
+    struct file *executable;            /* file structure referring the the executable,
+                                           used to deny writing to the file as long as the
+                                           process is running, and close it upon exit */
 
 
 #endif
@@ -170,11 +173,10 @@ void cur_update_priority (struct thread *t);
 void test_max_priority (void);
 
 
-#ifdef USERPROG
-  /* Owned by userprog/process.c. */
-  struct thread *thread_get(tid_t tid);
-  bool thread_is_parent_of(tid_t tid);
-#endif
+
+struct thread *thread_get(tid_t tid);
+bool thread_is_parent_of(tid_t tid);
+
 
 
 #endif /* threads/thread.h */

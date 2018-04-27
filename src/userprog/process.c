@@ -27,8 +27,32 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
 
 
-static void extract_command_name(char * cmd_string, char *command_name);
-static void extract_command_args(char * cmd_string, char* argv[], int *argc);
+
+
+
+
+static void
+extract_command_name(char * cmd_string, char *command_name)
+{
+  char *save_ptr;
+  strlcpy (command_name, cmd_string, PGSIZE);
+  command_name = strtok_r(command_name, " ", &save_ptr);
+}
+
+static void
+extract_command_args(char * cmd_string, char* argv[], int *argc)
+{
+  char *save_ptr;
+  argv[0] = strtok_r(cmd_string, " ", &save_ptr);
+  char *token;
+  *argc = 1;
+
+  while( ( token = strtok_r (NULL, " ", &save_ptr ) ) != NULL )
+    argv[(*argc)++] = token;
+}
+
+
+
 void process_close_all(void);
 
 struct process_exit_status{
@@ -87,14 +111,14 @@ process_execute (const char *file_name)
 
   // make another copy of file name, which will be saved as a property in the process structure
   char *cmd_name = malloc (sizeof(char)*(strlen(fn_copy)+1));
-  if (cmd_name == NULL)
+  if (!cmd_name)
     return TID_ERROR;
-  extract_command_name(fn_copy, cmd_name);
+  extract_command_name (fn_copy, cmd_name);
 
   struct semaphore sem;
-  sema_init(&sem,0);
+  sema_init (&sem, 0);
   int result = 0;
-  void *args[2];
+  void *args[3];
   args[0] = fn_copy;
   args[1] = &sem;
   args[2] = &result;
@@ -108,8 +132,8 @@ process_execute (const char *file_name)
       return -1;
     }
   // update thread with userprog properties
-  struct thread *t = thread_get(tid);
-  t->parent_tid = thread_tid();
+  struct thread *t = thread_get (tid);
+  t->parent_tid = thread_tid ();
   t->prog_name = cmd_name;
   t->next_fd = 2;
   list_init(&t->desc_table);
@@ -127,9 +151,16 @@ process_execute (const char *file_name)
 static void
 start_process (void *args)
 {
+
+  /*
+  args[0] = fn_copy;
+  args[1] = &sem;
+  args[2] = &result;
+  */
+
   char *file_name = ((char **)args)[0];
   struct semaphore *sem = ((struct semaphore **)args)[1];
-  int* result = ((int **)args)[2];
+  int *result = ((int **)args)[2];
 
   struct intr_frame if_;
   bool success;
@@ -150,7 +181,7 @@ start_process (void *args)
       *result = -1;
       thread_exit (-1);
     }
-  *result = thread_tid();
+  *result = thread_tid ();
   /* Start the user process by simulating a return from an
     interrupt, implemented by intr_exit (in
     threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -178,7 +209,7 @@ process_wait (tid_t child_tid)
       if (!thread_is_parent_of(child_tid))
          return -1;
 
-         //thread still running
+      // thread still running
       struct process_waiting *pw = malloc(sizeof(struct process_waiting));
       sema_init(&pw->sem, 0);
       pw->waiting_for = child_tid;
@@ -221,16 +252,17 @@ process_exit (int status)
         break;
       e = list_next (e);
     }
-  if (e != list_end (&process_waiting_list)){
-    struct process_waiting * pw = list_entry(e, struct process_waiting, elem);
-    sema_up (&(pw->sem));
-    list_remove(e);
-    free(pw);
-  }
+  if (e != list_end (&process_waiting_list))
+    {
+      struct process_waiting * pw = list_entry(e, struct process_waiting, elem);
+      sema_up (&(pw->sem));
+      list_remove(e);
+      free(pw);
+    }
   // return if it's a kernel thread
-  if(thread_tid() == 1){
+  if ( thread_tid() == 1 )
     return;
-  }
+
   // close open descriptors;
   process_close_all();
   printf("%s: exit(%d)\n", cur->prog_name, status);
@@ -596,28 +628,38 @@ setup_stack (void **esp, char **argv, int argc)
         {
           *esp = PHYS_BASE;
           int i = argc;
-          // this array holds reference to differences arguments in the stack
+
+          // Saving actual arguments to the stack
           uint32_t * arr[argc];
-          while(--i >= 0)
+          for (i--; i >= 0; i--)
             {
-              *esp = *esp - (strlen(argv[i])+1)*sizeof(char);
+              *esp = *esp - ( strlen (argv[i]) + 1 ) * sizeof (char);
               arr[i] = (uint32_t *)*esp;
-              memcpy(*esp,argv[i],strlen(argv[i])+1);
+              memcpy (*esp, argv[i], strlen (argv[i]) + 1);
             }
+          // Sentinel
           *esp = *esp - 4;
-          (*(int *)(*esp)) = 0;//sentinel
+          (*(int *)(*esp)) = 0;
+
+          // Saving pointers to the arguments to the stack
           i = argc;
-          while( --i >= 0)
+          for (i--; i>=0; i--)
             {
-              *esp = *esp - 4;//32bit
-              (*(uint32_t **)(*esp)) = arr[i];
+              *esp = *esp - 4; //32bit
+              ( *(uint32_t **) (*esp) ) = arr[i];
             }
+
+          // Pointer to argv
           *esp = *esp - 4;
-          (*(uintptr_t  **)(*esp)) = (*esp+4);
+          ( *(uintptr_t **) (*esp) ) = ( *esp + 4 );
+
+          // argc
           *esp = *esp - 4;
-          *(int *)(*esp) = argc;
+          *(int *) (*esp) = argc;
+
+          // "return address"
           *esp = *esp - 4;
-          (*(int *)(*esp))=0;
+          ( *(int *) (*esp) ) = 0;
 
          }
       else
@@ -649,36 +691,17 @@ install_page (void *upage, void *kpage, bool writable)
 
 
 
-static void
-extract_command_name(char * cmd_string, char *command_name)
-{
-  char *save_ptr;
-  strlcpy (command_name, cmd_string, PGSIZE);
-  command_name = strtok_r(command_name, " ", &save_ptr);
-}
-
-static void
-extract_command_args(char * cmd_string, char* argv[], int *argc)
-{
-  char *save_ptr;
-  argv[0] = strtok_r(cmd_string, " ", &save_ptr);
-  char *token;
-  *argc = 1;
-  while((token = strtok_r(NULL, " ", &save_ptr))!=NULL)
-  {
-    argv[(*argc)++] = token;
-  }
-}
 
 
-// File descriptor manager
-
+/* Allocate file descriptor for each new opened file */
 static int
 allocate_fd (void)
 {
   return thread_current()->next_fd++;
 }
 
+
+/* File descriptor entry */
 struct fd_entry
 {
   int fd;
@@ -686,35 +709,39 @@ struct fd_entry
   struct list_elem elem;
 };
 
+
+/* Returns the fd entry corresponding to the fd number */
 static struct fd_entry*
 get_fd_entry(int fd)
 {
-  struct fd_entry *fe = NULL;
+  struct fd_entry *fd_entry = NULL;
   struct list *fd_table = &thread_current()->desc_table;
   struct list_elem *e = list_begin (fd_table);
 
   while (e != list_end (fd_table))
     {
       struct fd_entry *tmp = list_entry (e, struct fd_entry, elem);
-      if(tmp->fd == fd)
+      if (tmp->fd == fd)
         {
-          fe = tmp;
+          fd_entry = tmp;
           break;
         }
       e = list_next (e);
     }
 
-  return fe;
+  return fd_entry;
 }
 
+
+/* Process openning a file */
 int
 process_open (const char *file_name)
 {
   struct file * f = filesys_open (file_name);
-  if (f == NULL)
+  if (!f)
     return -1;
   struct fd_entry *fd_entry = malloc (sizeof(struct fd_entry));
-  if (fd_entry == NULL)
+  if (!fd_entry)
     return -1;
   fd_entry->fd = allocate_fd();
   fd_entry->file = f;
@@ -723,6 +750,8 @@ process_open (const char *file_name)
   return fd_entry->fd;
 }
 
+
+/* Process writing to file fd */
 int
 process_write(int fd, const void *buffer, unsigned size)
 {
@@ -736,29 +765,21 @@ process_write(int fd, const void *buffer, unsigned size)
   return -1;
 }
 
-void
-process_close (int fd)
-{
-  if (get_fd_entry (fd) != NULL)
-    {
-      struct fd_entry *fd_entry = get_fd_entry (fd);
-      file_close (fd_entry->file);
-      list_remove (&fd_entry->elem);
-      free (fd_entry);
-    }
-}
 
+/* Process reading from file fd */
 int
-process_read (int fd, void *buffer, unsigned length)
+process_read (int fd, void *buffer, unsigned size)
 {
   if (get_fd_entry (fd) != NULL)
     {
       struct fd_entry *fd_entry = get_fd_entry (fd);
-      return file_read (fd_entry->file, buffer, length);
+      return file_read (fd_entry->file, buffer, size);
     }
   return -1;
 }
 
+
+/* Get the size of file fd */
 int
 process_filesize (int fd)
 {
@@ -770,6 +791,7 @@ process_filesize (int fd)
   return -1;
 }
 
+/* Returns the position of the next byte to be read or written in open file fd */
 int
 process_tell (int fd)
 {
@@ -782,8 +804,11 @@ process_tell (int fd)
 }
 
 
+
+/* Changes the next byte to be read or written in open file fd to position */
 void
-process_seek (int fd, unsigned position){
+process_seek (int fd, unsigned position)
+{
   if (get_fd_entry (fd) != NULL)
     {
       struct fd_entry *fd_entry = get_fd_entry (fd);
@@ -791,9 +816,24 @@ process_seek (int fd, unsigned position){
     }
 }
 
-// close all open files (including the executable)
+
+/* Process closing the file fd */
 void
-process_close_all(void)
+process_close (int fd)
+{
+  if (get_fd_entry (fd) != NULL)
+    {
+      struct fd_entry *fd_entry = get_fd_entry (fd);
+      file_close (fd_entry->file);
+      list_remove (&fd_entry->elem);
+      free (fd_entry);
+    }
+}
+
+
+/* Process closing all the files */
+void
+process_close_all (void)
 {
   struct list *fd_table = &thread_current()->desc_table;
   struct list_elem *e = list_begin (fd_table);
@@ -803,6 +843,6 @@ process_close_all(void)
       e = list_next (e);
       process_close(tmp->fd);
     }
-  // close the executable
+
   file_close (thread_current()->executable);
 }
