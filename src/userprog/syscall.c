@@ -10,13 +10,11 @@
 #include "filesys/filesys.h"
 
 typedef int pid_t;
-static int (*syscall_handlers[20]) (struct intr_frame *); /* Array of syscall functions */
-
 
 /* Reads a byte at user virtual address UADDR.
    UADDR must be below PHYS_BASE.
-   Returns the byte value if successful, -1 if a segfault
-   occurred. */
+   Returns the byte value if successful,
+   -1 if a segfault occurred. */
 static int
 get_user (const uint8_t *uaddr)
 {
@@ -30,7 +28,8 @@ get_user (const uint8_t *uaddr)
 
 /* Writes BYTE to user address UDST.
    UDST must be below PHYS_BASE.
-   Returns true if successful, false if a segfault occurred. */
+   Returns true if successful,
+   false if a segfault occurred. */
 static bool
 put_user (uint8_t *udst, uint8_t byte)
 {
@@ -44,7 +43,8 @@ put_user (uint8_t *udst, uint8_t byte)
 
 
 static bool
-is_valid_pointer (void * esp, uint8_t argc){
+is_valid_pointer (void * esp, uint8_t argc)
+{
   for (uint8_t i = 0; i < argc; ++i)
     {
       if (get_user (((uint8_t *)esp)+i) == -1)
@@ -54,11 +54,11 @@ is_valid_pointer (void * esp, uint8_t argc){
 }
 
 static bool
-is_valid_string(void * str)
+is_valid_string (void * str)
 {
   int ch = -1;
   while ((ch = get_user ((uint8_t*)str++)) != '\0' && ch!=-1);
-  if (ch=='\0')
+  if ( ch == '\0' )
     return true;
   else
     return false;
@@ -139,7 +139,8 @@ syscall_tell_wrapper (struct intr_frame *f)
 static int
 syscall_create_wrapper (struct intr_frame *f)
 {
-  if (!is_valid_pointer (f->esp +4, 4) || !is_valid_string (*(char **)(f->esp + 4)) || !is_valid_pointer (f->esp +8, 4))
+  if (!is_valid_pointer (f->esp +4, 4) ||
+      !is_valid_string (*(char **)(f->esp + 4)) || !is_valid_pointer (f->esp +8, 4))
     return -1;
   char *str = *(char **)(f->esp + 4);
   unsigned size = *(int *)(f->esp + 8);
@@ -150,7 +151,8 @@ syscall_create_wrapper (struct intr_frame *f)
 static int
 syscall_remove_wrapper (struct intr_frame *f)
 {
-  if (!is_valid_pointer (f->esp +4, 4) || !is_valid_string (*(char **)(f->esp + 4)))
+  if (!is_valid_pointer (f->esp +4, 4) ||
+      !is_valid_string (*(char **)(f->esp + 4)))
     return -1;
 
   char *str = *(char **)(f->esp + 4);
@@ -161,9 +163,10 @@ syscall_remove_wrapper (struct intr_frame *f)
 static int
 syscall_open_wrapper (struct intr_frame *f)
 {
-  if (!is_valid_pointer (f->esp +4, 4) || !is_valid_string (*(char **)(f->esp + 4))){
+  if (!is_valid_pointer (f->esp +4, 4) ||
+      !is_valid_string (*(char **)(f->esp + 4)))
     return -1;
-  }
+
   char *str = *(char **)(f->esp + 4);
   f->eax = process_open (str);
   return 0;
@@ -214,7 +217,8 @@ syscall_wait_wrapper (struct  intr_frame *f)
 static int
 syscall_exec_wrapper (struct intr_frame *f)
 {
-  if (!is_valid_pointer (f->esp +4, 4) || !is_valid_string(*(char **)(f->esp + 4)))
+  if (!is_valid_pointer (f->esp + 4, 4) ||
+      !is_valid_string(*(char **)(f->esp + 4)))
     return -1;
 
   char *str = *(char **)(f->esp + 4);
@@ -235,7 +239,7 @@ syscall_exec_wrapper (struct intr_frame *f)
 }
 
 static int
-syscall_write_wrapper (struct  intr_frame *f)
+syscall_write_wrapper (struct intr_frame *f)
 {
   if ( !is_valid_pointer (f->esp + 4, 12) )
     return -1;
@@ -243,7 +247,8 @@ syscall_write_wrapper (struct  intr_frame *f)
   int fd = *(int *)(f->esp + 4);
   void *buffer = *(char**)(f->esp + 8);
   unsigned size = *(unsigned *)(f->esp + 12);
-  if ( !is_valid_pointer (buffer, 1) || !is_valid_pointer (buffer + size,1) )
+  if ( !is_valid_pointer (buffer, 1) ||
+       !is_valid_pointer (buffer + size, 1) )
     return -1;
 
   int written_size = process_write (fd, buffer, size);
@@ -252,7 +257,7 @@ syscall_write_wrapper (struct  intr_frame *f)
 }
 
 static int
-syscall_read_wrapper (struct  intr_frame *f)
+syscall_read_wrapper (struct intr_frame *f)
 {
   if ( !is_valid_pointer (f->esp + 4, 12) )
     return -1;
@@ -260,7 +265,8 @@ syscall_read_wrapper (struct  intr_frame *f)
   int fd = *(int *)(f->esp + 4);
   void *buffer = *(char**)(f->esp + 8);
   unsigned size = *(unsigned *)(f->esp + 12);
-  if ( !is_valid_pointer(buffer, 1) || !is_valid_pointer(buffer + size,1) )
+  if ( !is_valid_pointer (buffer, 1) ||
+       !is_valid_pointer (buffer + size, 1) )
     return -1;
 
   int written_size = process_read (fd, buffer, size);

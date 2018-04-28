@@ -134,9 +134,9 @@ process_execute (const char *file_name)
   // update thread with userprog properties
   struct thread *t = thread_get (tid);
   t->parent_tid = thread_tid ();
-  t->prog_name = cmd_name;
+  t->program_name = cmd_name;
   t->next_fd = 2;
-  list_init(&t->desc_table);
+  list_init(&t->fd_entry_list);
 
   sema_down(&sem);
   return result;
@@ -265,7 +265,7 @@ process_exit (int status)
 
   // close open descriptors;
   process_close_all();
-  printf("%s: exit(%d)\n", cur->prog_name, status);
+  printf("%s: exit(%d)\n", cur->program_name, status);
 
   uint32_t *pd;
 
@@ -715,7 +715,7 @@ static struct fd_entry*
 get_fd_entry(int fd)
 {
   struct fd_entry *fd_entry = NULL;
-  struct list *fd_table = &thread_current()->desc_table;
+  struct list *fd_table = &thread_current()->fd_entry_list;
   struct list_elem *e = list_begin (fd_table);
 
   while (e != list_end (fd_table))
@@ -745,7 +745,7 @@ process_open (const char *file_name)
     return -1;
   fd_entry->fd = allocate_fd();
   fd_entry->file = f;
-  list_push_back(&thread_current()->desc_table, &fd_entry->elem);
+  list_push_back(&thread_current()->fd_entry_list, &fd_entry->elem);
 
   return fd_entry->fd;
 }
@@ -835,7 +835,7 @@ process_close (int fd)
 void
 process_close_all (void)
 {
-  struct list *fd_table = &thread_current()->desc_table;
+  struct list *fd_table = &thread_current()->fd_entry_list;
   struct list_elem *e = list_begin (fd_table);
   while (e != list_end (fd_table))
     {
