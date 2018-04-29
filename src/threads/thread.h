@@ -106,7 +106,7 @@ struct thread
 
     char *program_name;                 /* The name of the running program for this thread */
     tid_t parent_tid;                   /* The tid of the parent thread */
-    struct list fd_entry_list;         /* The list of the files opened by this thread */
+    struct list fd_entry_list;          /* The list of the files opened by this thread */
     int next_fd;                        /* The file descriptor for the next file to be opened */
 
     struct file *executable;            /* file structure referring the the executable,

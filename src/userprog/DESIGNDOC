@@ -1,5 +1,5 @@
 		     +--------------------------+
-       	       	     |		CS 140		|
+       	       	     |		CS 130		|
 		     | PROJECT 2: USER PROGRAMS	|
 		     | 	   DESIGN DOCUMENT     	|
 		     +--------------------------+
@@ -22,6 +22,10 @@ Yifeng  Zhang   <zhangyf@shanghaitech.edu.cn>
 
 
   1. https://github.com/pindexis/pintos-project2
+  2. https://wenku.baidu.com/view/8296f9629b6648d7c1c74649.html
+  3. http://bits.usc.edu/cs350/assignments/project2.pdf
+  4. https://wenku.baidu.com/view/8e0d72e0a8956bec0875e392.html
+  5. https://wenku.baidu.com/view/eed6bbdaa48da0116c175f0e7cd184254b351ba8.html
 
 			   ARGUMENT PASSING
 			   ================
@@ -40,38 +44,16 @@ Yifeng  Zhang   <zhangyf@shanghaitech.edu.cn>
 >> you arrange for the elements of argv[] to be in the right order?
 >> How do you avoid overflowing the stack page?
 
-  First, I modify the string in place to get rid of any excess whitespace. Then, I
-  parse the string and copy the offsets from the start of the string of each
-  argument into an array. The number of strtok_r() calls also gives me argc. Then,
-  I backwards through that array to get the address and length of each argument
-  and push those onto the stack (in reverse order) while decrementing $esp. While
-  I'm doing this, I store the address of $esp for every argument into another
-  array ($esp should point to the beginning of each argument on the stack as it
-  gets pushed onto the stack). Then, I word-align $esp, push the addresses of all
-  of the arguments (in reverse order, again) using my argument address list, push
-  argc, and then push a fake return value, all while decrementing $esp
-  accordingly. The elements of argv[] are pushed onto the stack in reverse order,
-  which is what is expected. I avoid overflowing by checking to make sure the
-  argument string isn't too long.
 
 ---- RATIONALE ----
 
 >> A3: Why does Pintos implement strtok_r() but not strtok()?
 
-  The kernel needs to be reentrant. Therefore, it implements strtok_r(), which is
-  a reentrant version of strtok().
 
 >> A4: In Pintos, the kernel separates commands into a executable name
 >> and arguments.  In Unix-like systems, the shell does this
 >> separation.  Identify at least two advantages of the Unix approach.
 
-  One advantage is that the kernel code becomes a lot simpler. Since the shell is
-  a system application, the separation of the name and arguments is done outside
-  the kernel and therefore reduces the number of potential bugs in the kernel.
-
-  Another advantage of the Unix approach is that the shell abstracts away the
-  stack setup onto the kernel in a consistent manner, rather than the kernel
-  having to do it all by itself.
 
 			     SYSTEM CALLS
 			     ============
@@ -84,11 +66,11 @@ Yifeng  Zhang   <zhangyf@shanghaitech.edu.cn>
 
   struct thread
   {
-    char *prog_name;                      /* The name of the running program for this thread */
-    tid_t parent_tid;                     /* The tid of the parent thread */
-    struct list desc_table;               /* List of the fds of files opened by this thread */
-    int next_fd;                          /* File descriptor for the next file to be opened */
-    struct file *executable;              /* File struct referring the the executable */
+    char *prog_name;                       /* The name of the running program for this thread */
+    tid_t parent_tid;                      /* The tid of the parent thread */
+    struct list desc_table;                /* List of the fds of files opened by this thread */
+    int next_fd;                           /* File descriptor for the next file to be opened */
+    struct file *executable;               /* File struct referring the the executable */
   };
 
   static struct list process_history_list; /* List that keeps track of all died process */
@@ -116,9 +98,6 @@ Yifeng  Zhang   <zhangyf@shanghaitech.edu.cn>
     int fd;                                /* File decriptor number */
     struct file *file;                     /* File struct reffering the file */
   };
-
-
-
 
 
 >> B2: Describe how file descriptors are associated with open files.
@@ -178,6 +157,13 @@ Yifeng  Zhang   <zhangyf@shanghaitech.edu.cn>
 >> loading.  How does your code ensure this?  How is the load
 >> success/failure status passed back to the thread that calls "exec"?
 
+  This is done by using the process_exit and process_waiting entries. Parents wait
+  for the child process to complete loading by trying to take down the semaphore
+  in the process_waiting entry, and when the child finishes loading, it rises up
+  the semaphore, signaling that the loading has finished to the parent process, and
+  add its exit status entry to process_exit list. Then the parent process search
+  for the status in process_exit list, and finally gets the status.
+
 >> B8: Consider parent process P with child process C.  How do you
 >> ensure proper synchronization and avoid race conditions when P
 >> calls wait(C) before C exits?  After C exits?  How do you ensure
@@ -185,10 +171,32 @@ Yifeng  Zhang   <zhangyf@shanghaitech.edu.cn>
 >> terminates without waiting, before C exits?  After C exits?  Are
 >> there any special cases?
 
+  We maintain a list with all the waiting processes and all the processes that have
+  exited. If P waits for C, the wait() function first search for the process C in
+  the list containing all threads. If the correct C is found and it is a child
+  of P, go on to the next step, else return -1. In the next step, P creates a
+  waiting entry for C, add this entry to the waiting list, and waits for the
+  semaphore in the entry to be up (initially down, which assumes that C is still
+  running). When C exits, its exiting entry is added to exiting list, and then C
+  checks if there is an entry waiting for it in waiting list. If yes, set up its
+  semaphore so that P can know C is done. No matter P calls wait() before or after
+  C exits, or P terminates without waiting before or after C exits, the resources
+  are freed, since in my implementation, parents must free their children's resources
+  before they exit.
+
 ---- RATIONALE ----
 
 >> B9: Why did you choose to implement access to user memory from the
 >> kernel in the way that you did?
+
+
+  We implemented access to user memory using the get_user() provided by Pintos manual,
+  because of two reasons. First, this implementation is faster because it takes
+  advantage of processor's MMU, and tends to be used in real kernels. Second, some
+  helpful code was provided, which made the task simpler.
+
+
+
 
 >> B10: What advantages or disadvantages can you see to your design
 >> for file descriptors?
@@ -216,6 +224,8 @@ Yifeng  Zhang   <zhangyf@shanghaitech.edu.cn>
 >> If you changed it, what advantages are there to your approach?
 
   We did not change it.
+
+
 
 			   SURVEY QUESTIONS
 			   ================

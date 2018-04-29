@@ -55,23 +55,25 @@ extract_command_args(char * cmd_string, char* argv[], int *argc)
 
 void process_close_all(void);
 
-struct process_exit_status{
-  struct list_elem elem;
-  int status;
-  pid_t pid;
-  pid_t parent_pid;
-};
+struct process_exit_status
+  {
+    struct list_elem elem;
+    int status;
+    pid_t pid;
+    pid_t parent_pid;
+  };
 // a list that keeps track of all died process in the system
 // managed by wait/exit functions
 static struct list process_history_list;
 
 
 
-struct process_waiting{
-  struct list_elem elem;
-  struct semaphore sem;
-  pid_t waiting_for;
-};
+struct process_waiting
+  {
+    struct list_elem elem;
+    struct semaphore sem;
+    pid_t waiting_for;
+  };
 // basic publish/subscribe model, where the child (waiting_for) will unlock the lock, causing the parent to unblock and
 // parses the process_stats to find out the exist status
 // managed by wait/exit functions
@@ -197,10 +199,7 @@ start_process (void *args)
    exception), returns -1.  If TID is invalid or if it was not a
    child of the calling process, or if process_wait() has already
    been successfully called for the given TID, returns -1
-   immediately, without waiting.
-
-   This function will be implemented in problem 2-2.  For now, it
-   does nothing. */
+   immediately, without waiting. */
 int
 process_wait (tid_t child_tid)
 {
@@ -209,14 +208,24 @@ process_wait (tid_t child_tid)
       if (!thread_is_parent_of(child_tid))
          return -1;
 
-      // thread still running
+      /* Assume that the child process is still running */
+
+      /* Allocate a process_waiting entry */
       struct process_waiting *pw = malloc(sizeof(struct process_waiting));
       sema_init(&pw->sem, 0);
       pw->waiting_for = child_tid;
+
+      /* Add it to the waiting list */
       list_push_back(&process_waiting_list, &pw->elem);
+
+      /* Wait for the child process */
       sema_down(&pw->sem);
     }
 
+  /* Now the child process has exited */
+
+
+  /* Find the corresponding entry in the history list */
   struct list_elem *e = list_begin (&process_history_list);
   while (e != list_end (&process_history_list))
     {
@@ -249,21 +258,22 @@ process_exit (int status)
   while (e != list_end (&process_waiting_list))
     {
       if (list_entry (e, struct process_waiting, elem)->waiting_for == thread_tid())
-        break;
+        {
+          struct process_waiting * pw = list_entry(e, struct process_waiting, elem);
+          sema_up (&(pw->sem));
+          list_remove(e);
+          free(pw);
+          break;
+        }
       e = list_next (e);
     }
-  if (e != list_end (&process_waiting_list))
-    {
-      struct process_waiting * pw = list_entry(e, struct process_waiting, elem);
-      sema_up (&(pw->sem));
-      list_remove(e);
-      free(pw);
-    }
-  // return if it's a kernel thread
+
+
+  /* main thread */
   if ( thread_tid() == 1 )
     return;
 
-  // close open descriptors;
+  /* Close all the files */
   process_close_all();
   printf("%s: exit(%d)\n", cur->program_name, status);
 

@@ -805,7 +805,7 @@ donate_priority (void)
 
 
 
-  /* Returns the thread pointer pointing to the thread with tid */
+/* Returns the thread pointer pointing to the thread with tid */
 struct thread*
 thread_get (tid_t tid)
 {
