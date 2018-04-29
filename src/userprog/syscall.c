@@ -26,22 +26,6 @@ get_user (const uint8_t *uaddr)
   return result;
 }
 
-/* Writes BYTE to user address UDST.
-   UDST must be below PHYS_BASE.
-   Returns true if successful,
-   false if a segfault occurred. */
-static bool
-put_user (uint8_t *udst, uint8_t byte)
-{
-  if (!is_user_vaddr (udst))
-    return false;
-  int error_code;
-  asm ("movl $1f, %0; movb %b2, %1; 1:"
-       : "=&a" (error_code), "=m" (*udst) : "q" (byte));
-  return error_code != -1;
-}
-
-
 static bool
 is_valid_pointer (void * esp, uint8_t argc)
 {
@@ -196,14 +180,14 @@ syscall_exit_wrapper (struct intr_frame *f)
 }
 
 static int
-syscall_halt_wrapper (struct  intr_frame *f UNUSED)
+syscall_halt_wrapper (struct intr_frame *f UNUSED)
 {
   syscall_halt ();
   return 0;
 }
 
 static int
-syscall_wait_wrapper (struct  intr_frame *f)
+syscall_wait_wrapper (struct intr_frame *f)
 {
   pid_t pid;
   if (is_valid_pointer (f->esp + 4, 4))

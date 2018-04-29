@@ -1,8 +1,8 @@
-		     +--------------------------+
-       	       	     |		CS 130		|
-		     | PROJECT 2: USER PROGRAMS	|
-		     | 	   DESIGN DOCUMENT     	|
-		     +--------------------------+
+			+--------------------------+
+			|          CS 130          |
+			| PROJECT 2: USER PROGRAMS |
+			|     DESIGN DOCUMENT      |
+			+--------------------------+
 
 ---- GROUP ----
 
@@ -36,7 +36,16 @@ Yifeng  Zhang   <zhangyf@shanghaitech.edu.cn>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-  None.
+  No new global variables or types were declared for argument
+  passing.
+
+  However, the following function declaration were changed:
+
+  static bool setup_stack (void **esp, char **argv, int argc);
+
+  The functions were redefined because in start_process, load function is invoked,
+  where setup_stack is a step to set up the user stack. "argv" in the parameter
+  is a pointer of pointer to the real argv and so does argc.
 
 ---- ALGORITHMS ----
 
@@ -44,15 +53,44 @@ Yifeng  Zhang   <zhangyf@shanghaitech.edu.cn>
 >> you arrange for the elements of argv[] to be in the right order?
 >> How do you avoid overflowing the stack page?
 
+  Argument parsing is implemented in the setup_stack function. First, the argv
+  and argc are preprocessed by function extract_command_args and are stored in
+  the relevant variables, which will be passed to setup_stack(void **esp, char **argv, int argc).
+
+  The pointer *esp is kept to each argument's stack position and the pointer
+  itself is stored in the arr[argc].
+
+  After saving each character string's stack position, the word size on the
+  stack is aligned. Then the array of pointers is pushed onto the stack in reverse
+  order. Finally, the argv, argc and fake return address are pushed onto
+  the stack.
 
 ---- RATIONALE ----
 
 >> A3: Why does Pintos implement strtok_r() but not strtok()?
 
+  In strtok(), the following is true (taken from C documentation):
+
+  The point where the last token was found is kept internally by the
+  function to be used on the next call .
+
+  This means that if two threads are calling strtok() in the kernel, there
+  is a possible data race where one thread would use the last token held by
+  another thread, which would obviously be incorrect and even worse, could
+  crash the kernel.
 
 >> A4: In Pintos, the kernel separates commands into a executable name
 >> and arguments.  In Unix-like systems, the shell does this
 >> separation.  Identify at least two advantages of the Unix approach.
+
+  1. This makes the shell allocate memory for argument parsing, instead of
+  the kernel. The memory of kernel is small and precious. If the user process
+  runs out of memory, it would not cause a serious problem, but if the kernel
+  runs out of memory, that might crash the entire system.
+
+  2. This allows the shell to check if the command line is blank or the user
+  enters invalid characters before passing control to the kernel.
+
 
 
 			     SYSTEM CALLS
@@ -119,12 +157,25 @@ Yifeng  Zhang   <zhangyf@shanghaitech.edu.cn>
 
 
 
-
-
 ---- ALGORITHMS ----
 
 >> B3: Describe your code for reading and writing user data from the
 >> kernel.
+
+  First in syscall handler, we check the validity of the stack pointer.
+  Validity of a pointer is checked by testing if the pointer is
+  above the end of user's code address and if it is less than the kernel's
+  virtual address space. If the stack pointer is valid, then the stack
+  pointer is dereferenced, let us get the syscall number.
+
+  Then retrieve each arguments and check the incremented stack pointer.
+  For pointer arguments, those arguments must be checked for validity,
+  then dereferenced to a kernel virtual address. For strings and buffer
+  arguments, each byte must be checked for validity.
+
+  Finally, we can invoke syscall by the syscall number we retrieved before,
+  where the user data can be returned through the interrupt frame's register eax.
+
 
 >> B4: Suppose a system call causes a full page (4,096 bytes) of data
 >> to be copied from user space into the kernel.  What is the least
@@ -133,8 +184,41 @@ Yifeng  Zhang   <zhangyf@shanghaitech.edu.cn>
 >> for a system call that only copies 2 bytes of data?  Is there room
 >> for improvement in these numbers, and how much?
 
+  Full page scenario:
+    The least possible number of inspections will be 1. Suppose the data starts
+    at the beginning of the page and all the data happens to locate within the
+    same page, only one page needs to be verified.
+
+    The greatest possible number would be 4096. The worst case is the data is
+    split byte by byte into discontinuous virtual address. Then 4096 pages will
+    be acquired and comes with 4096 inspections.
+
+  2 Bytes of data scenario
+    Just like the full page scenario, if the 2-byte data is lie within the same
+    page, then only 1 inspection is needed. However, in the worst case page
+    inspection only needs to occur twice, once for each byte.
+
+  Improvement:
+    The number of inspection can be decreased by making full use of each page.
+    We can try to pack the data into the same page when loading the data. Then
+    page inspections are only acquired when data is occurred on the different page,
+    which definitely reduce the inspections.
+
+
 >> B5: Briefly describe your implementation of the "wait" system call
 >> and how it interacts with process termination.
+
+  The process, given a child tid, check whether the tid is the child thread
+  of the calling process and whether tid is valid. If it doesn't exist,
+  return -1. If the current process is already waiting on the child (i.e.
+  process_wait() has already been successfully called for the given TID),
+  -1 is also returned. Otherwise, the child process' wait is set to true
+  and the current process waits until the child process exits. Then the
+  current process gets the child's exit status, removes the child from
+  the history list (since the child thread is already dead, this removes
+  all traces of the child) and returns the status.
+
+
 
 >> B6: Any access to user program memory at a user-specified address
 >> can fail due to a bad pointer value.  Such accesses must cause the
@@ -149,6 +233,27 @@ Yifeng  Zhang   <zhangyf@shanghaitech.edu.cn>
 >> allocated resources (locks, buffers, etc.) are freed?  In a few
 >> paragraphs, describe the strategy or strategies you adopted for
 >> managing these issues.  Give an example.
+
+  To handle errors with pointers, there is a function called is_valid_pointer,
+  which actually is a preparation to check whether the pointer is valid on the
+  user-specified address. If the pointer is not valid, then return false and
+  the system call will not go on.
+
+  In each call to thread_exit, which is called if a process is killed by the
+  kernel or by exit, it calls process_exit if the thread is a user
+  program. In process exit, the file and child lists are freed. The
+  executable is closed, so it can be written to once again and the signal
+  the parent process.
+
+  Lets say a user process calls write with a buffer size of 20, where the
+  pointer to the tenth byte is invalid. First, the call number is read from
+  the user stack along with the three arguments. Then for each pointer in
+  the range of the buffer size, we will invoke is_valid_pointer to check the
+  validity of pointers. At the tenth byte, this validity will fail and exit(-1)
+  will be called. At this point, we'll send the exit status to the parent and
+  then call thread_exit. The resources will be freed and the thread will be dead,
+  allowing another thread to be scheduled.
+
 
 ---- SYNCHRONIZATION ----
 
@@ -181,8 +286,8 @@ Yifeng  Zhang   <zhangyf@shanghaitech.edu.cn>
   checks if there is an entry waiting for it in waiting list. If yes, set up its
   semaphore so that P can know C is done. No matter P calls wait() before or after
   C exits, or P terminates without waiting before or after C exits, the resources
-  are freed, since in my implementation, parents must free their children's resources
-  before they exit.
+  are freed, since in my implementation, every process must free its own resources
+  before it exits.
 
 ---- RATIONALE ----
 
@@ -242,11 +347,21 @@ the quarter.
 >> Did you find that working on a particular part of the assignment gave
 >> you greater insight into some aspect of OS design?
 
+  We learned how one implementation of the OS function which detects invalid
+  pointers from user programs.
+
 >> Is there some particular fact or hint we should give students in
 >> future quarters to help them solve the problems?  Conversely, did you
 >> find any of our guidance to be misleading?
 
+  Some direct hints in useful functions and data structure would be nice.
+  Maybe we should not build this completely on our own. Instead, a frame or startup
+  code would certainly clear the path for us.
+
 >> Do you have any suggestions for the TAs to more effectively assist
 >> students, either for future quarters or the remaining projects?
+
+  We need more detailed instructions about the project. It is quite difficult to
+  get started...
 
 >> Any other comments?

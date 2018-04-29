@@ -639,7 +639,7 @@ setup_stack (void **esp, char **argv, int argc)
           *esp = PHYS_BASE;
           int i = argc;
 
-          // Saving actual arguments to the stack
+          /* Saving actual arguments to the stack */
           uint32_t * arr[argc];
           for (i--; i >= 0; i--)
             {
@@ -647,27 +647,27 @@ setup_stack (void **esp, char **argv, int argc)
               arr[i] = (uint32_t *)*esp;
               memcpy (*esp, argv[i], strlen (argv[i]) + 1);
             }
-          // Sentinel
+          /* Sentinel */
           *esp = *esp - 4;
           (*(int *)(*esp)) = 0;
 
-          // Saving pointers to the arguments to the stack
+          /* Saving pointers to the arguments to the stack */
           i = argc;
           for (i--; i>=0; i--)
             {
-              *esp = *esp - 4; //32bit
+              *esp = *esp - 4; /* 32 bits */
               ( *(uint32_t **) (*esp) ) = arr[i];
             }
 
-          // Pointer to argv
+          /* Pointer to argv */
           *esp = *esp - 4;
           ( *(uintptr_t **) (*esp) ) = ( *esp + 4 );
 
-          // argc
+          /* argc */
           *esp = *esp - 4;
           *(int *) (*esp) = argc;
 
-          // "return address"
+          /* "return address" */
           *esp = *esp - 4;
           ( *(int *) (*esp) ) = 0;
 
