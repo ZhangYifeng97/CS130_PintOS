@@ -3,6 +3,7 @@
 
 #include <debug.h>
 #include <list.h>
+#include <hash.h>
 #include <stdint.h>
 
 /* States in a thread's life cycle. */
@@ -89,38 +90,38 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
-    int base_priority;                  /* Base priority. */
-    struct list locks;                  /* Locks that the thread is holding. */
-    struct lock *lock_waiting;          /* The lock that the thread is waiting for. */
-    int nice;                           /* Niceness. */
-    int recent_cpu;                     /* Recent CPU. */
-    int64_t sleep_end;
-
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-
+#ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
-
-    char *program_name;                 /* The name of the running program for this thread */
-    tid_t parent_tid;                   /* The tid of the parent thread */
-    struct list fd_entry_list;          /* The list of the files opened by this thread */
-    int next_fd;                        /* The file descriptor for the next file to be opened */
-
-    struct file *executable;            /* file structure referring the the executable,
-                                           used to deny writing to the file as long as the
-                                           process is running, and close it upon exit */
-
-
-
+#endif
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
 
+    // Needed to keep track of locks thread holds
+    struct list lock_list;
 
+    // Needed for file system sys calls
+    struct list file_list;
+    int fd;
 
+    // Needed for wait / exec sys calls
+    struct list child_list;
+    tid_t parent;
+    // Points to child_process struct in parent's child list
+    struct child_process* cp;
+
+    // Needed for denying writes to executables
+    struct file* executable;
+
+    struct hash spt;
+
+    struct list mmap_list;
+    int mapid;
   };
 
 /* If false (default), use round-robin scheduler.
@@ -137,8 +138,6 @@ void thread_print_stats (void);
 typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
-void thread_sleep (int end);
-void thread_wake (int ticks);
 void thread_block (void);
 void thread_unblock (struct thread *);
 
@@ -146,7 +145,7 @@ struct thread *thread_current (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
 
-void thread_exit (int status) NO_RETURN;
+void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
@@ -161,21 +160,7 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
-void check_block(struct thread *, void *);
-bool thread_cmp_priority (const struct list_elem *elem1, const struct list_elem *elem2, void *aux UNUSED);
-void thread_donate_priority (struct thread *);
-void donate_priority (void);
-void thread_hold_the_lock(struct lock *);
-void cur_increase_recent_cpu_by_one (struct thread *t);
-void each_update_load_avg_and_recent_cpu (void);
-void cur_update_priority (struct thread *t);
-void test_max_priority (void);
-
-
-
-struct thread *thread_get(tid_t tid);
-bool thread_is_parent_of(tid_t tid);
-
-
+bool thread_alive (int pid);
+void release_locks (void);
 
 #endif /* threads/thread.h */
