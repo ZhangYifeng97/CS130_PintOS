@@ -1,239 +1,292 @@
+#include "vm/page.h"
+#include <stdio.h>
 #include <string.h>
-#include <stdbool.h>
-#include "filesys/file.h"
-#include "threads/interrupt.h"
+#include "userprog/pagedir.h"
+#include "userprog/syscall.h"
 #include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/thread.h"
+#include "threads/synch.h"
 #include "threads/vaddr.h"
-#include "userprog/pagedir.h"
-#include "userprog/process.h"
-#include "userprog/syscall.h"
 #include "vm/frame.h"
-#include "vm/page.h"
 #include "vm/swap.h"
 
-static unsigned page_hash_func (const struct hash_elem *e, void *aux UNUSED)
+/* Ensure synchronization on load and unload. */
+static struct lock load_lock;
+static struct lock unload_lock;
+
+/* Load function for the specific type of page. */
+static bool vm_load_file_page (uint8_t *kpage, struct vm_page *page);
+static void vm_load_swap_page (uint8_t *kpage, struct vm_page *page);
+static void vm_load_zero_page (uint8_t *kpage);
+
+static void add_page (struct vm_page *page);
+
+/* Initialise the page table locks. */
+void
+vm_page_init (void)
 {
-  struct sup_page_entry *spte = hash_entry(e, struct sup_page_entry,
-					   elem);
-  return hash_int((int) spte->uva);
+  lock_init (&load_lock);
+  lock_init (&unload_lock);
 }
 
-static bool page_less_func (const struct hash_elem *a,
-			    const struct hash_elem *b,
-			    void *aux UNUSED)
+static int cnt = 0;
+
+/* Creates a new page from a file segment. */
+struct vm_page*
+vm_new_file_page (void *addr, struct file *file, off_t ofs, size_t read_bytes,
+                  size_t zero_bytes, bool writable, off_t block_id)
 {
-  struct sup_page_entry *sa = hash_entry(a, struct sup_page_entry, elem);
-  struct sup_page_entry *sb = hash_entry(b, struct sup_page_entry, elem);
-  if (sa->uva < sb->uva)
+  struct vm_page *page = (struct vm_page*) malloc (sizeof (struct vm_page));
+  
+  if (page == NULL)
+    return NULL;
+
+  page->type = FILE;
+  page->addr = addr;
+  page->pagedir = thread_current ()->pagedir;
+  page->file_data.file = file;
+  page->file_data.ofs = ofs;
+  page->file_data.read_bytes = read_bytes;
+  page->file_data.zero_bytes = zero_bytes;
+  page->file_data.block_id = block_id;
+  page->writable = writable;
+  page->loaded = false;
+  page->kpage = NULL;
+
+  add_page (page);
+
+  return page; 
+}
+
+/* Creates a new page initialized to zero on loading. */
+struct vm_page*
+vm_new_zero_page (void *addr, bool writable)
+{
+  struct vm_page *page = (struct vm_page*) malloc (sizeof (struct vm_page));
+
+  if (page == NULL)
+    return NULL;
+
+  page->type = ZERO;
+  page->addr = addr;
+  page->pagedir = thread_current ()->pagedir;
+  page->writable = writable;
+  page->loaded = false;
+  page->kpage = NULL;  
+
+  add_page (page);
+
+  return page;
+}
+
+/* Pins a page into memory. */
+void
+vm_pin_page (struct vm_page *page)
+{
+  if (page->kpage != NULL)
+    return;
+  vm_frame_pin (page->kpage);
+}
+
+/* Unpins a page from memory. */
+void
+vm_unpin_page (struct vm_page *page)
+{
+  if (page->kpage != NULL)
+    return;
+  vm_frame_unpin (page->kpage);
+}
+
+/* Loads a page and obtains a frame where for it. If PINNED
+   is true the frame will be left pinned and the caller has
+   to unpin it after usage. This is helpful on read / write
+   operation and makes sure the frame won't be evicted by
+   another thread in meantime. */
+bool 
+vm_load_page (struct vm_page *page, bool pinned)
+{
+  /* Get a frame of memory. */
+  lock_acquire (&load_lock);
+  
+  /* If we have a read-only file try to look for a frame if any
+     that contains the same data. */
+  if (page->type == FILE && page->file_data.block_id != -1)
+    page->kpage = vm_lookup_frame (page->file_data.block_id);
+  /* Otherwise obtain an empty frame from the frame table. */
+  if (page->kpage == NULL)
+    page->kpage = vm_get_frame (PAL_USER);
+
+  lock_release (&load_lock);
+  vm_frame_set_page (page->kpage, page);
+
+  bool success = true;
+  /* Performs the specific loading operation. */
+  if (page->type == FILE)
+    success = vm_load_file_page (page->kpage, page);
+  else if (page->type == ZERO)
+    vm_load_zero_page (page->kpage);
+  else
+    vm_load_swap_page (page->kpage, page);
+
+  if (!success)
     {
-      return true;
-    }
-  return false;
-}
-
-static void page_action_func (struct hash_elem *e, void *aux UNUSED)
-{
-  struct sup_page_entry *spte = hash_entry(e, struct sup_page_entry,
-					   elem);
-  if (spte->is_loaded)
-    {
-      frame_free(pagedir_get_page(thread_current()->pagedir, spte->uva));
-      pagedir_clear_page(thread_current()->pagedir, spte->uva);
-    }
-  free(spte);
-}
-
-void page_table_init (struct hash *spt)
-{
-  hash_init (spt, page_hash_func, page_less_func, NULL);
-}
-
-void page_table_destroy (struct hash *spt)
-{
-  hash_destroy (spt, page_action_func);
-}
-
-struct sup_page_entry* get_spte (void *uva)
-{
-  struct sup_page_entry spte;
-  spte.uva = pg_round_down(uva);
-
-  struct hash_elem *e = hash_find(&thread_current()->spt, &spte.elem);
-  if (!e)
-    {
-      return NULL;
-    }
-  return hash_entry (e, struct sup_page_entry, elem);
-}
-
-bool load_page (struct sup_page_entry *spte)
-{
-  bool success = false;
-  spte->pinned = true;
-  if (spte->is_loaded)
-    {
-      return success;
-    }
-  switch (spte->type)
-    {
-    case FILE:
-      success = load_file(spte);
-      break;
-    case SWAP:
-      success = load_swap(spte);
-      break;
-    case MMAP:
-      success = load_file(spte);
-      break;
-    }
-  return success;
-}
-
-bool load_swap (struct sup_page_entry *spte)
-{
-  uint8_t *frame = frame_alloc (PAL_USER, spte);
-  if (!frame)
-    {
+      vm_frame_unpin (page->kpage);
       return false;
     }
-  if (!install_page(spte->uva, frame, spte->writable))
+
+  /* Clear any previous mapping and set a new one. */
+  pagedir_clear_page (page->pagedir, page->addr);
+  if (!pagedir_set_page (page->pagedir, page->addr, page->kpage, page->writable) )
     {
-      frame_free(frame);
+      ASSERT (false);
+      vm_frame_unpin (page->kpage);
       return false;
     }
-  swap_in(spte->swap_index, spte->uva);
-  spte->is_loaded = true;
+
+  pagedir_set_dirty (page->pagedir, page->addr, false);
+  pagedir_set_accessed (page->pagedir, page->addr, true);
+
+  page->loaded = true;
+  /* On succes we leave the frame pinned if the caller wants so. */
+  if (!pinned)
+    vm_frame_unpin (page->kpage);
   return true;
 }
 
-bool load_file (struct sup_page_entry *spte)
+/* Unloads a page by writing its content back to disk if the file
+   is writable or to swap if not. Clears the mapping and sets 
+   the pagedir entry to point to the page struct. */
+void
+vm_unload_page (struct vm_page *page, void *kpage)
 {
-  enum palloc_flags flags = PAL_USER;
-  if (spte->read_bytes == 0)
+  lock_acquire (&unload_lock);
+  if (page->type == FILE && pagedir_is_dirty (page->pagedir, page->addr) &&
+      file_writable (page->file_data.file) == false)
     {
-      flags |= PAL_ZERO;
+      /* Write the page back to the file. */
+      vm_frame_pin (kpage);
+      sys_t_filelock (true);
+
+      file_seek (page->file_data.file, page->file_data.ofs);
+      file_write (page->file_data.file, kpage, page->file_data.read_bytes);
+      sys_t_filelock (false);
+      vm_frame_unpin (kpage);
     }
-  uint8_t *frame = frame_alloc(flags, spte);
-  if (!frame)
+  else if (page->type == SWAP || pagedir_is_dirty (page->pagedir, page->addr))
     {
+      /* Store the page to swap. */
+      page->type = SWAP;
+      page->swap_data.index = vm_swap_store (kpage);
+    }
+  lock_release (&unload_lock);
+
+  pagedir_clear_page (page->pagedir, page->addr);
+  pagedir_add_page (page->pagedir, page->addr, (void *)page);
+  page->loaded = false;
+  page->kpage = NULL;
+}
+
+/* Loads a file page into the given frame. Reads read_bytes from 
+   the file and sets the remaining bytes to 0. */
+static bool
+vm_load_file_page (uint8_t *kpage, struct vm_page *page)
+{
+  /* Read the content of the page from file. */
+
+  sys_t_filelock (true);
+  file_seek (page->file_data.file, page->file_data.ofs);
+  size_t ret = file_read (page->file_data.file, kpage, 
+                          page->file_data.read_bytes);
+  sys_t_filelock (false);
+   
+  if (ret != page->file_data.read_bytes)
+    {
+      vm_free_frame (kpage, page->pagedir);
       return false;
     }
-  if (spte->read_bytes > 0)
-    {
-      lock_acquire(&filesys_lock);
-      if ((int) spte->read_bytes != file_read_at(spte->file, frame,
-						 spte->read_bytes,
-						 spte->offset))
-	{
-	  lock_release(&filesys_lock);
-	  frame_free(frame);
-	  return false;
-	}
-      lock_release(&filesys_lock);
-      memset(frame + spte->read_bytes, 0, spte->zero_bytes);
-    }
-
-  if (!install_page(spte->uva, frame, spte->writable))
-    {
-      frame_free(frame);
-      return false;
-    }
-
-  spte->is_loaded = true;  
+  
+  /* Fill the rest of the page with zeroes. */
+  memset (kpage + page->file_data.read_bytes, 0, page->file_data.zero_bytes);
   return true;
 }
 
-bool add_file_to_page_table (struct file *file, int32_t ofs, uint8_t *upage,
-			     uint32_t read_bytes, uint32_t zero_bytes,
-			     bool writable)
+/* To load a zero page we just have to set everything to 0. Usually
+   pages wont't remain all zeros when they are swapped in. */
+static void
+vm_load_zero_page (uint8_t *kpage)
 {
-  struct sup_page_entry *spte = malloc(sizeof(struct sup_page_entry));
-  if (!spte)
-    {
-      return false;
-    }
-  spte->file = file;
-  spte->offset = ofs;
-  spte->uva = upage;
-  spte->read_bytes = read_bytes;
-  spte->zero_bytes = zero_bytes;
-  spte->writable = writable;
-  spte->is_loaded = false;
-  spte->type = FILE;
-  spte->pinned = false;
-
-  return (hash_insert(&thread_current()->spt, &spte->elem) == NULL);
+  /* Fill this page only with zeroes. */
+  memset (kpage, 0, PGSIZE);
 }
 
-bool add_mmap_to_page_table(struct file *file, int32_t ofs, uint8_t *upage,
-			     uint32_t read_bytes, uint32_t zero_bytes)
+/* Loads a page from the swap into main memory and frees
+   the underlying swap slot. */
+static void
+vm_load_swap_page (uint8_t *kpage, struct vm_page *page)
 {
-  struct sup_page_entry *spte = malloc(sizeof(struct sup_page_entry));
-  if (!spte)
-    {
-      return false;
-    }
-  spte->file = file;
-  spte->offset = ofs;
-  spte->uva = upage;
-  spte->read_bytes = read_bytes;
-  spte->zero_bytes = zero_bytes;
-  spte->is_loaded = false;
-  spte->type = MMAP;
-  spte->writable = true;
-  spte->pinned = false;
-
-  if (!process_add_mmap(spte))
-    {
-      free(spte);
-      return false;
-    }
-
-  if (hash_insert(&thread_current()->spt, &spte->elem))
-    {
-      spte->type = HASH_ERROR;
-      return false;
-    }
-  return true;
+  /* Read the content from swap and free the swap slot. */
+  vm_swap_load (page->swap_data.index, kpage);
+  vm_swap_free (page->swap_data.index);
 }
 
-bool grow_stack (void *uva)
+/* Creates a new zero page at the top of the thread's stack 
+   address space. Then loads the page into memory. */
+struct vm_page *
+vm_grow_stack (void *uva, bool pinned)
 {
-  if ( (size_t) (PHYS_BASE - pg_round_down(uva)) > MAX_STACK_SIZE)
-    {
-      return false;
-    }
- struct sup_page_entry *spte = malloc(sizeof(struct sup_page_entry));
-  if (!spte)
-    {
-      return false;
-    }
-  spte->uva = pg_round_down(uva);
-  spte->is_loaded = true;
-  spte->writable = true;
-  spte->type = SWAP;
-  spte->pinned = true;
+  struct vm_page *page = vm_new_zero_page (uva, true);
+  if ( !vm_load_page (page, pinned) )
+    return NULL;
 
-  uint8_t *frame = frame_alloc (PAL_USER, spte);
-  if (!frame)
-    {
-      free(spte);
-      return false;
-    }
-
-  if (!install_page(spte->uva, frame, spte->writable))
-    {
-      free(spte);
-      frame_free(frame);
-      return false;
-    }
-
-  if (intr_context())
-    {
-      spte->pinned = false;
-    }
-
-  return (hash_insert(&thread_current()->spt, &spte->elem) == NULL);
+  return page;
 }
+
+/* Searches for a supplemental page in the thread's pagedir. If the page
+   is not present we get the struct directly. Otherwise is the page is
+   loaded we obtain it from the frame table using the physical address. */
+struct vm_page *
+vm_find_page (void *addr)
+{
+  uint32_t *pagedir = thread_current ()->pagedir;
+  struct vm_page *page = NULL;
+  page = (struct vm_page *) pagedir_find_page (pagedir, (const void *)addr);
+
+  return page;
+}
+
+/* Stores inside the page table entry a pointer to the page struct
+   so we can use the pagedir to track the supplemental page. */
+static void
+add_page (struct vm_page *page)
+{
+  pagedir_add_page (page->pagedir, page->addr, (void *)page);
+}
+
+/* Frees a page struct and it's corresponding swap slot. */
+void
+vm_free_page (struct vm_page *page)
+{
+  if (page == NULL)
+    return;
+  
+  /* Free the swap data of the page if necessary. */
+  if (page->type == SWAP && page->loaded == false)
+    vm_swap_free (page->swap_data.index);
+
+  /* Clear the mapping from the thread's pagedir. */
+  pagedir_clear_page (page->pagedir, page->addr);
+  free (page);
+  --cnt;
+}
+
+/* Use a heuristic to check for stack access. We check if the
+   address is in the user space and the fault access is at 
+   most 32 bytes below the stack pointer. */
+bool
+stack_access (const void *esp, void *addr)
+{
+  return (uint32_t)addr > 0 && addr >= (esp - 32) &&
+     (PHYS_BASE - pg_round_down (addr)) <= (1<<23);
+}
+

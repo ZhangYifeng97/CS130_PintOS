@@ -2,10 +2,11 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include "userprog/gdt.h"
-#include <user/syscall.h>
 #include "threads/interrupt.h"
+#include "threads/pte.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/pagedir.h"
 #include "userprog/syscall.h"
 #include "vm/page.h"
 
@@ -93,7 +94,7 @@ kill (struct intr_frame *f)
       printf ("%s: dying due to interrupt %#04x (%s).\n",
               thread_name (), f->vec_no, intr_name (f->vec_no));
       intr_dump_frame (f);
-      exit(-1);
+      thread_exit (); 
 
     case SEL_KCSEG:
       /* Kernel's code segment, which indicates a kernel bug.
@@ -113,7 +114,7 @@ kill (struct intr_frame *f)
 }
 
 /* Page fault handler.  This is a skeleton that must be filled in
-   to implement virtual memory.  Some solutions to project 2 may
+   to implement virtual memory.  Some solutions to task 2 may
    also require modifying this code.
 
    At entry, the address that faulted is in CR2 (Control Register
@@ -130,6 +131,8 @@ page_fault (struct intr_frame *f)
   bool write;        /* True: access was write, false: access was read. */
   bool user;         /* True: access by user, false: access by kernel. */
   void *fault_addr;  /* Fault address. */
+  void *fault_page;  /* Fault page. */
+  struct vm_page *page; 
 
   /* Obtain faulting address, the virtual address that was
      accessed to cause the fault.  It may point to code or to
@@ -152,29 +155,51 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  bool load = false;
-  if (not_present && fault_addr > USER_VADDR_BOTTOM &&
-      is_user_vaddr(fault_addr))
+  /* Try to access a kernel address in user mode. */
+  if ( (user && !is_user_vaddr (fault_addr) ))
+    sys_t_exit (-1);
+
+  /* Get the fault page. */
+  fault_page = (void *) (PTE_ADDR & (uint32_t) fault_addr);
+
+  //printf ("\n[page fault] at %p in page %d %d %d %d po=%p\n", fault_addr, fault_page, not_present, write, user, f->esp);
+  page = vm_find_page (fault_page);
+
+  /* Try to write on a read-only page. */
+  if (page != NULL && write && !page->writable)
+    sys_t_exit (-1);
+
+  if (page != NULL)
     {
-      struct sup_page_entry *spte = get_spte(fault_addr);
-      if (spte)
-	{
-	  load = load_page(spte);
-	  spte->pinned = false;
-	}
-      else if (fault_addr >= f->esp - STACK_HEURISTIC)
-	{
-	  load = grow_stack(fault_addr);
-	}
+      //printf ("[Page fault load] rb=%d zb=%d writable=%d page=%d\n", page->file_data.read_bytes, page->file_data.zero_bytes, page->writable, page->addr);
+
+      if ( !vm_load_page (page, false) )
+        sys_t_exit (-1);
+      
+      return;
     }
-  if (!load)
+  else if( stack_access (f->esp, fault_addr) )
     {
-      printf ("Page fault at %p: %s error %s page in %s context.\n",
-	      fault_addr,
-	      not_present ? "not present" : "rights violation",
-	      write ? "writing" : "reading",
-	      user ? "user" : "kernel");
-      kill (f);
+      //printf ("[Need to grow stack]\n");
+
+      if ( !vm_grow_stack (fault_page, false) )
+        sys_t_exit (-1);
+      return;
     }
+  else if (user || not_present)
+    sys_t_exit (-1);
+
+  f->eip = (void *) f->eax;
+  f->eax = 0xffffffff;
+
+  /* To implement virtual memory, delete the rest of the function
+     body, and replace it with code that brings in the page to
+     which fault_addr refers. */
+  printf ("Page fault at %p: %s error %s page in %s context.\n",
+          fault_addr,
+          not_present ? "not present" : "rights violation",
+          write ? "writing" : "reading",
+          user ? "user" : "kernel");
+  kill (f);
 }
 

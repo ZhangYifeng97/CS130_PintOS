@@ -22,13 +22,13 @@
 #include "threads/palloc.h"
 #include "threads/pte.h"
 #include "threads/thread.h"
-#include "vm/swap.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #include "userprog/exception.h"
 #include "userprog/gdt.h"
 #include "userprog/syscall.h"
 #include "userprog/tss.h"
+#include "vm/frame.h"
 #else
 #include "tests/threads/tests.h"
 #endif
@@ -37,6 +37,10 @@
 #include "devices/ide.h"
 #include "filesys/filesys.h"
 #include "filesys/fsutil.h"
+#endif
+#ifdef VM
+#include "vm/swap.h"
+#include "vm/mmap.h"
 #endif
 
 /* Page directory with kernel mappings only. */
@@ -112,6 +116,8 @@ main (void)
   kbd_init ();
   input_init ();
 #ifdef USERPROG
+  vm_frame_init ();
+  vm_page_init ();
   exception_init ();
   syscall_init ();
 #endif
@@ -126,6 +132,11 @@ main (void)
   ide_init ();
   locate_block_devices ();
   filesys_init (format_filesys);
+#endif
+
+#ifdef VM
+  vm_swap_init ();
+  vm_mfile_init ();
 #endif
 
   printf ("Boot complete.\n");
@@ -396,7 +407,6 @@ locate_block_devices (void)
   locate_block_device (BLOCK_SCRATCH, scratch_bdev_name);
 #ifdef VM
   locate_block_device (BLOCK_SWAP, swap_bdev_name);
-  swap_init();
 #endif
 }
 
