@@ -9,10 +9,9 @@ static struct lock mfile_lock;
 static struct hash vm_mfiles;
 
 static unsigned vm_mfile_hash (const struct hash_elem *, void *);
-static bool vm_mfile_less (const struct hash_elem *, const struct hash_elem *,
-                    void *);
+static bool vm_mfile_less (const struct hash_elem *, const struct hash_elem *, void *);
 
-/* Initialise the mmap table. */
+/* Initialize the mmap table. */
 void
 vm_mfile_init (void)
 {
@@ -47,7 +46,7 @@ vm_delete_mfile (mapid_t mapid)
   free (mf);
   lock_release (&mfile_lock);
 
-  return true; 
+  return true;
 }
 
 /* Creates a new mfile from a given mapid and a fid. Intserts the new mfile
@@ -84,5 +83,5 @@ vm_mfile_less (const struct hash_elem *a_, const struct hash_elem *b_,
   const struct vm_mfile *a = hash_entry (a_, struct vm_mfile, hash_elem);
   const struct vm_mfile *b = hash_entry (b_, struct vm_mfile, hash_elem);
 
-  return a->mapid < b->mapid;
+  return ( a->mapid < b->mapid );
 }

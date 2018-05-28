@@ -20,10 +20,10 @@ struct vm_page
   bool writable;                 /* If the page is writable. */
   void *addr;                    /* User virtual address of the page. */
   void *kpage;                   /* Physical address of the page if loaded. */
-  uint32_t *pagedir;             /* Page's hardware pagedir. */ 
+  uint32_t *pagedir;             /* Page's hardware pagedir. */
   struct list_elem frame_elem;   /* List elem for frame shared pages list. */
 
-  struct        
+  struct
   {
     struct file *file;           /* File struct for the page. */
     off_t ofs;                   /* Offset in the file. */
@@ -40,21 +40,26 @@ struct vm_page
 
 /* Initialize the page locks. */
 void vm_page_init (void);
+
 /* Create a new page. */
-struct vm_page *vm_new_file_page (void *, struct file *, off_t, uint32_t, 
-                                  uint32_t, bool, off_t);
+struct vm_page *vm_new_file_page (void *, struct file *, off_t, uint32_t, uint32_t, bool, off_t);
 struct vm_page *vm_new_zero_page (void *, bool);
-/* Load or unload the given page. */
+
+/* Load and unload the given page. */
 bool vm_load_page (struct vm_page *, bool);
 void vm_unload_page (struct vm_page *, void *);
+
 /* Grow a thread's stack. */
 struct vm_page *vm_grow_stack (void *, bool);
-/* Pin or unpin a page's underlying frame. */
+
+/* Pin and unpin a page's underlying frame. */
 void vm_pin_page (struct vm_page *);
 void vm_unpin_page (struct vm_page *);
+
 /* Find / Free a given page. */
 struct vm_page *vm_find_page (void *);
 void vm_free_page (struct vm_page *);
+
 /* Heuristic for stack access. */
 bool stack_access (const void *, void *);
 

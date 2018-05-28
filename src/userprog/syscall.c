@@ -93,7 +93,7 @@ static void
 syscall_handler (struct intr_frame *f)
 {
   handler function;
-  int *param = f->esp, ret;
+  int *param = f->esp;
 
   if ( !is_user_vaddr(param) )
     sys_exit (-1);
@@ -107,7 +107,7 @@ syscall_handler (struct intr_frame *f)
   function = syscall_map[*param];
 
   param_esp = f->esp;
-  ret = function (*(param + 1), *(param + 2), *(param + 3));
+  int ret = function (*(param + 1), *(param + 2), *(param + 3));
   f->eax = ret;
 
   return;
@@ -137,6 +137,7 @@ sys_exit (int status)
       e = list_begin (&t->files);
       sys_close ( list_entry (e, struct user_file, thread_elem)->fid );
     }
+
   /* Unmap all memory mapped files of the thread. */
   while (!list_empty (&t->mfiles) )
     {
@@ -184,7 +185,7 @@ sys_remove (const char *file)
 {
    if (file == NULL)
      sys_exit (-1);
-  
+
   lock_acquire (&file_lock);
   bool ret = filesys_remove (file);
   lock_release (&file_lock);
@@ -245,7 +246,7 @@ sys_filesize (int fd)
 static int
 sys_read (int fd, void *buffer, unsigned length)
 {
-  /* I experience a weird behaviour for page-mer-stk test. It needs 
+  /* I experience a weird behaviour for page-mer-stk test. It needs
      to grow its stack when reading but the fault address it's 30 bytes
      above the stack pointer so it's not recognized as authentic stack
      access. We need to figure out this */
@@ -272,11 +273,11 @@ sys_read (int fd, void *buffer, unsigned length)
         ret = -1;
       else
         {
-          /* We read into the buffer one page at a time. Before the actual 
-             read we need to make sure the page it's loaded and pin it's 
+          /* We read into the buffer one page at a time. Before the actual
+             read we need to make sure the page it's loaded and pin it's
              underlying frame. We have to prevent a page fault while a device
              driver access a user driver. Loading one page at a time protects
-             the OS from malicious programs that could try to pin all the 
+             the OS from malicious programs that could try to pin all the
              frames at a given time. */
 
           size_t rem = length;
@@ -291,9 +292,9 @@ sys_read (int fd, void *buffer, unsigned length)
                  present in memory. */
               size_t ofs = tmp_buffer - pg_round_down (tmp_buffer);
               struct vm_page *page = vm_find_page (tmp_buffer - ofs);
-              
+
               if (page == NULL && stack_access (esp, tmp_buffer) )
-                page = vm_grow_stack (tmp_buffer - ofs, true);   
+                page = vm_grow_stack (tmp_buffer - ofs, true);
               else if (page == NULL)
                 sys_t_exit (-1);
 
@@ -307,7 +308,7 @@ sys_read (int fd, void *buffer, unsigned length)
 
               ASSERT (page->loaded);
               ret += file_read (f->file, tmp_buffer, read_bytes);
-              lock_release (&file_lock);              
+              lock_release (&file_lock);
 
               rem -= read_bytes;
               tmp_buffer += read_bytes;
@@ -345,7 +346,7 @@ sys_write (int fd, const void *buffer, unsigned length)
         ret = -1;
       else
         {
-          /* We write from the buffer one page at a time. The reason behind 
+          /* We write from the buffer one page at a time. The reason behind
              this approach is highlighted above. */
 
           size_t rem = length;
@@ -359,7 +360,7 @@ sys_write (int fd, const void *buffer, unsigned length)
               struct vm_page *page = vm_find_page (tmp_buffer - ofs);
 
               if (page == NULL && stack_access(esp, tmp_buffer) )
-                page = vm_grow_stack (tmp_buffer - ofs, true);   
+                page = vm_grow_stack (tmp_buffer - ofs, true);
               else if (page == NULL)
                 sys_t_exit (-1);
 
@@ -367,17 +368,17 @@ sys_write (int fd, const void *buffer, unsigned length)
               if ( !page->loaded )
                 vm_load_page (page, true);
 
-              size_t write_bytes = ofs + rem > PGSIZE ? 
+              size_t write_bytes = ofs + rem > PGSIZE ?
                                    rem - (ofs + rem - PGSIZE) : rem;
               lock_acquire (&file_lock);
 
               ASSERT (page->loaded);
               ret += file_write (f->file, tmp_buffer, write_bytes);
-              lock_release (&file_lock);              
+              lock_release (&file_lock);
 
               rem -= write_bytes;
               tmp_buffer += write_bytes;
-              
+
               /* Unpin the frame after we are done. */
               vm_frame_unpin (page->kpage);
             }
@@ -448,7 +449,7 @@ sys_mmap (int fd, void *addr)
   size = sys_filesize(fd);
   lock_acquire (&file_lock);
   file = file_reopen ( file_by_fid (fd)->file );
-  lock_release (&file_lock);  
+  lock_release (&file_lock);
 
   /* Check for validity. For more detail see spec 5.3.4. */
   if (size <= 0 || file == NULL)
@@ -467,7 +468,7 @@ sys_mmap (int fd, void *addr)
     {
       size_t read_bytes;
       size_t zero_bytes;
-      
+
       if (size >= PGSIZE)
         {
           read_bytes = PGSIZE;
@@ -478,13 +479,13 @@ sys_mmap (int fd, void *addr)
           read_bytes = size;
           zero_bytes = PGSIZE - size;
         }
-  
+
       /* Fail if there is already a mapped page at the same address. */
       if ( vm_find_page (tmp_addr) != NULL)
           return -1;
-      
+
       vm_new_file_page (tmp_addr, file, ofs, read_bytes, zero_bytes, true, -1);
-      
+
       /* Move on. */
       ofs += PGSIZE;
       size -= read_bytes;
@@ -525,7 +526,7 @@ sys_munmap (mapid_t mapid)
           /* We don't really need to unpin the page
           as the holding frame will be deleted when
           we dump the page. */
-        } 
+        }
       vm_free_page (page);
     }
   vm_delete_mfile (mapid);
@@ -568,7 +569,7 @@ file_by_fid (int fid)
 }
 
 /* Extern function for sys_exit */
-void 
+void
 sys_t_exit (int status)
 {
   sys_exit (status);
