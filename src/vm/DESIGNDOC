@@ -16,6 +16,9 @@ Yifeng  Zhang   <zhangyf@shanghaitech.edu.cn>
 >> If you have any preliminary comments on your submission, notes for the
 >> TAs, or extra credit, please give them here.
 
+  We consulted some existing project solutions on Github, grasped some of their
+  ideas, structures and implementations, and used them in our code.
+
 >> Please cite any offline or online sources you consulted while
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course staff.
@@ -290,13 +293,13 @@ Yifeng  Zhang   <zhangyf@shanghaitech.edu.cn>
 >> where your design falls along this continuum and why you chose to
 >> design it this way.
 
-  First of all, we do not want a single lock for the whole VM system because it
-  will reduce parallelism, which is quite important for an OS. We chose to use
-  a lock for each critical section like frame eviction and page loading/unloading.
-  We do not want two processes to request a new frame at the same time or to evict
-  a frame concurrently. We also used a lock for the frames hash table operations,
-  because if another thread deletes a frame when we are performing eviction, it
-  will invalidate the hash iterator. We also used a lock for the swap store/load
+  First, we do not want a single lock for the whole VM system because it will reduce
+  parallelism, which is quite important for an OS. We chose to use a lock for each
+  critical section like frame eviction and page loading/unloading. We do not want
+  two processes to request a new frame at the same time or to evict a frame
+  concurrently. We also used a lock for the frames hash table operations, because
+  if another thread deletes a frame when we are performing eviction, it will
+  invalidate the hash iterator. We also used a lock for the swap store/load
   operations because we do not want two threads to modify the bitmap concurrently.
 
        MEMORY MAPPED FILES
@@ -405,6 +408,9 @@ the quarter.
 >> In your opinion, was this assignment, or any one of the three problems
 >> in it, too easy or too hard?  Did it take too long or too little time?
 
+  I think this project is too hard for us. We could not have completed it without
+  consulting the Github repos.
+
 >> Did you find that working on a particular part of the assignment gave
 >> you greater insight into some aspect of OS design?
 
@@ -414,5 +420,7 @@ the quarter.
 
 >> Do you have any suggestions for the TAs to more effectively assist
 >> students, either for future quarters or the remaining projects?
+
+  Please talk more about PintOS during discussion sessions.
 
 >> Any other comments?
