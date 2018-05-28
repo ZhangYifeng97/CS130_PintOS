@@ -106,18 +106,18 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
-
+    int base_priority;                  /* Base priority. */
+    struct list locks;                  /* Locks that the thread is holding. */
+    struct lock *lock_waiting;          /* The lock that the thread is waiting for. */
+    int nice;                           /* Niceness. */
+    int recent_cpu;                     /* Recent CPU. */
+    int64_t sleep_end;
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-    int base_priority;                  /* Base priority of a thread. */ 
     bool donated;                       /* If a thread has donated priority. */
-    struct list locks;                  /* List of locks hold by a thread */
     struct lock *blocked;               /* The lock blocking the thread */
 
-    int nice;                           /* Nice value. */
-    int32_t recent_cpu;                 /* Recent CPU value in 17.14 
-                                           Fixed Point representation. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -134,7 +134,11 @@ struct thread
     bool exited;                        /* If the process exited? */
     bool waited;                        /* If parent thread has called wait */
 #endif
-
+    char *program_name;                 /* The name of the running program for this thread */
+    tid_t parent_tid;                   /* The tid of the parent thread */
+    struct list fd_entry_list;          /* The list of the files opened by this thread */
+    int next_fd;                        /* The file descriptor for the next file to be opened */
+    struct file *executable;
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
@@ -153,7 +157,7 @@ void thread_print_stats (void);
 typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
-/* Uses numeric less than on priority to compare two 
+/* Uses numeric less than on priority to compare two
    elements of the ready threads list */
 bool priority_less_func (const struct list_elem *a, const struct list_elem *b,
                          void *aux UNUSED);
@@ -184,5 +188,13 @@ int thread_get_load_avg (void);
 
 void thread_calculate_load_avg (void);
 void thread_calculate_recent_cpu (struct thread *t, void *aux UNUSED);
+
+void thread_sleep (int end);
+void thread_wake (int ticks);
+
+void thread_setting_priority (int new_priority);
+void thread_setting_nice (int nice);
+void cur_increase_recent_cpu_by_one (struct thread *thrd);
+void each_update_load_avg_and_recent_cpu (void);
 
 #endif /* threads/thread.h */
