@@ -10,7 +10,7 @@
    list_elem's.  The list_entry macro allows conversion from a
    struct list_elem back to a structure object that contains it.
 
-   For example, suppose there is a need for a list of `struct
+   For example, suppose there is a needed for a list of `struct
    foo'.  `struct foo' should contain a `struct list_elem'
    member, like so:
 
@@ -87,14 +87,14 @@
 #include <stdint.h>
 
 /* List element. */
-struct list_elem 
+struct list_elem
   {
     struct list_elem *prev;     /* Previous list element. */
     struct list_elem *next;     /* Next list element. */
   };
 
 /* List. */
-struct list 
+struct list
   {
     struct list_elem head;      /* List head. */
     struct list_elem tail;      /* List tail. */
@@ -158,7 +158,7 @@ bool list_empty (struct list *);
 
 /* Miscellaneous. */
 void list_reverse (struct list *);
-
+
 /* Compares the value of two list elements A and B, given
    auxiliary data AUX.  Returns true if A is less than B, or
    false if A is greater than or equal to B. */
@@ -171,8 +171,6 @@ void list_sort (struct list *,
                 list_less_func *, void *aux);
 void list_insert_ordered (struct list *, struct list_elem *,
                           list_less_func *, void *aux);
-struct list_elem *list_remove_ordered(struct list *, list_less_func *,
-                                      void *aux);
 void list_unique (struct list *, struct list *duplicates,
                   list_less_func *, void *aux);
 

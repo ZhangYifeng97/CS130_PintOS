@@ -3,12 +3,7 @@
 #include <stdio.h>
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
-#include "threads/pte.h"
 #include "threads/thread.h"
-#include "threads/vaddr.h"
-#include "userprog/pagedir.h"
-#include "userprog/syscall.h"
-#include "vm/page.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -32,7 +27,7 @@ static void page_fault (struct intr_frame *);
    Refer to [IA32-v3a] section 5.15 "Exception and Interrupt
    Reference" for a description of each of these exceptions. */
 void
-exception_init (void) 
+exception_init (void)
 {
   /* These exceptions can be raised explicitly by a user program,
      e.g. via the INT, INT3, INTO, and BOUND instructions.  Thus,
@@ -67,14 +62,14 @@ exception_init (void)
 
 /* Prints exception statistics. */
 void
-exception_print_stats (void) 
+exception_print_stats (void)
 {
   printf ("Exception: %lld page faults\n", page_fault_cnt);
 }
 
 /* Handler for an exception (probably) caused by a user process. */
 static void
-kill (struct intr_frame *f) 
+kill (struct intr_frame *f)
 {
   /* This interrupt is one (probably) caused by a user process.
      For example, the process might have tried to access unmapped
@@ -83,7 +78,7 @@ kill (struct intr_frame *f)
      the kernel.  Real Unix-like operating systems pass most
      exceptions back to the process via signals, but we don't
      implement them. */
-     
+
   /* The interrupt frame's code segment value tells us where the
      exception originated. */
   switch (f->cs)
@@ -94,7 +89,7 @@ kill (struct intr_frame *f)
       printf ("%s: dying due to interrupt %#04x (%s).\n",
               thread_name (), f->vec_no, intr_name (f->vec_no));
       intr_dump_frame (f);
-      thread_exit (); 
+      thread_exit ();
 
     case SEL_KCSEG:
       /* Kernel's code segment, which indicates a kernel bug.
@@ -102,7 +97,7 @@ kill (struct intr_frame *f)
          may cause kernel exceptions--but they shouldn't arrive
          here.)  Panic the kernel to make the point.  */
       intr_dump_frame (f);
-      PANIC ("Kernel bug - unexpected interrupt in kernel"); 
+      PANIC ("Kernel bug - unexpected interrupt in kernel");
 
     default:
       /* Some other code segment?  Shouldn't happen.  Panic the
@@ -114,7 +109,7 @@ kill (struct intr_frame *f)
 }
 
 /* Page fault handler.  This is a skeleton that must be filled in
-   to implement virtual memory.  Some solutions to task 2 may
+   to implement virtual memory.  Some solutions to project 2 may
    also require modifying this code.
 
    At entry, the address that faulted is in CR2 (Control Register
@@ -125,14 +120,12 @@ kill (struct intr_frame *f)
    description of "Interrupt 14--Page Fault Exception (#PF)" in
    [IA32-v3a] section 5.15 "Exception and Interrupt Reference". */
 static void
-page_fault (struct intr_frame *f) 
+page_fault (struct intr_frame *f)
 {
   bool not_present;  /* True: not-present page, false: writing r/o page. */
   bool write;        /* True: access was write, false: access was read. */
   bool user;         /* True: access by user, false: access by kernel. */
   void *fault_addr;  /* Fault address. */
-  void *fault_page;  /* Fault page. */
-  struct vm_page *page; 
 
   /* Obtain faulting address, the virtual address that was
      accessed to cause the fault.  It may point to code or to
@@ -155,42 +148,13 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  /* Try to access a kernel address in user mode. */
-  if ( (user && !is_user_vaddr (fault_addr) ))
-    sys_t_exit (-1);
-
-  /* Get the fault page. */
-  fault_page = (void *) (PTE_ADDR & (uint32_t) fault_addr);
-
-  //printf ("\n[page fault] at %p in page %d %d %d %d po=%p\n", fault_addr, fault_page, not_present, write, user, f->esp);
-  page = vm_find_page (fault_page);
-
-  /* Try to write on a read-only page. */
-  if (page != NULL && write && !page->writable)
-    sys_t_exit (-1);
-
-  if (page != NULL)
+  /* Handle bad dereferences from system call implementations. */
+  if (!user)
     {
-      //printf ("[Page fault load] rb=%d zb=%d writable=%d page=%d\n", page->file_data.read_bytes, page->file_data.zero_bytes, page->writable, page->addr);
-
-      if ( !vm_load_page (page, false) )
-        sys_t_exit (-1);
-      
+      f->eip = (void (*) (void)) f->eax;
+      f->eax = 0;
       return;
     }
-  else if( stack_access (f->esp, fault_addr) )
-    {
-      //printf ("[Need to grow stack]\n");
-
-      if ( !vm_grow_stack (fault_page, false) )
-        sys_t_exit (-1);
-      return;
-    }
-  else if (user || not_present)
-    sys_t_exit (-1);
-
-  f->eip = (void *) f->eax;
-  f->eax = 0xffffffff;
 
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to

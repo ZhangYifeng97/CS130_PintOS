@@ -3,11 +3,8 @@
 
 #include <debug.h>
 #include <list.h>
-#include <hash.h>
 #include <stdint.h>
 #include "threads/synch.h"
-#include "filesys/file.h"
-#include "vm/mmap.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -27,19 +24,6 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
-
-/* Thread nice values */
-#define NICE_MIN -20
-#define NICE_DEFAULT 0
-#define NICE_MAX 20
-
-#ifdef USERPROG
-#define RET_STATUS_INIT 0
-#define RET_STATUS_ERROR -1
-#endif
-
-/* Recent CPU default value */
-#define RECENT_CPU_DEFAULT 0
 
 /* A kernel thread or user process.
 
@@ -106,41 +90,42 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
-    int base_priority;                  /* Base priority. */
-    struct list locks;                  /* Locks that the thread is holding. */
-    struct lock *lock_waiting;          /* The lock that the thread is waiting for. */
-    int nice;                           /* Niceness. */
-    int recent_cpu;                     /* Recent CPU. */
-    int64_t sleep_end;
+
+    /* Owned by process.c. */
+    struct wait_status *wait_status;    /* This process's completion status. */
+    struct list children;               /* Completion status of children. */
+
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
-
-    bool donated;                       /* If a thread has donated priority. */
-    struct lock *blocked;               /* The lock blocking the thread */
-
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
-    struct semaphore sema_wait;         /* Semaphore for process_wait. */
-    struct semaphore sema_exit;         /* Semaphore for process_exit. */
-    struct thread *parent;              /* The parent of the thread */
-    struct file *exec;                  /* The file containing the thread executable */
-    struct list files;                  /* A list of open files */
-    struct list mfiles;                 /* A list of memory mapped files */
-    struct list children;               /* A list of children process */
-    struct list_elem child_elem;        /* List elem for children list */
-    int ret_status;                     /* Return status. */
-    bool exited;                        /* If the process exited? */
-    bool waited;                        /* If parent thread has called wait */
 #endif
-    char *program_name;                 /* The name of the running program for this thread */
-    tid_t parent_tid;                   /* The tid of the parent thread */
-    struct list fd_entry_list;          /* The list of the files opened by this thread */
-    int next_fd;                        /* The file descriptor for the next file to be opened */
-    struct file *executable;
+    struct file *bin_file;              /* Executable. */
+
+    /* Owned by syscall.c. */
+    struct list fds;                    /* List of file descriptors. */
+    int next_handle;                    /* Next handle value. */
+    struct dir *cwd;                    /* Current directory */
+
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+  };
+
+/* Tracks the completion of a process.
+   Reference held by both the parent, in its `children' list,
+   and by the child, in its `wait_status' pointer. */
+struct wait_status
+  {
+    struct list_elem elem;              /* `children' list element. */
+    struct lock lock;                   /* Protects ref_cnt. */
+    int ref_cnt;                        /* 2=child and parent both alive,
+                                           1=either child or parent alive,
+                                           0=child and parent both dead. */
+    tid_t tid;                          /* Child thread id. */
+    int exit_code;                      /* Child exit code, if dead. */
+    struct semaphore dead;              /* 1=child alive, 0=child dead. */
   };
 
 /* If false (default), use round-robin scheduler.
@@ -157,17 +142,11 @@ void thread_print_stats (void);
 typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
-/* Uses numeric less than on priority to compare two
-   elements of the ready threads list */
-bool priority_less_func (const struct list_elem *a, const struct list_elem *b,
-                         void *aux UNUSED);
-
 void thread_block (void);
 void thread_unblock (struct thread *);
 
 struct thread *thread_current (void);
 tid_t thread_tid (void);
-struct thread *thread_by_tid (tid_t);
 const char *thread_name (void);
 
 void thread_exit (void) NO_RETURN;
@@ -179,22 +158,10 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
-void thread_set_priority_extra (struct thread *, int , bool );
 
 int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
-
-void thread_calculate_load_avg (void);
-void thread_calculate_recent_cpu (struct thread *t, void *aux UNUSED);
-
-void thread_sleep (int end);
-void thread_wake (int ticks);
-
-void thread_setting_priority (int new_priority);
-void thread_setting_nice (int nice);
-void cur_increase_recent_cpu_by_one (struct thread *thrd);
-void each_update_load_avg_and_recent_cpu (void);
 
 #endif /* threads/thread.h */
