@@ -1,0 +1,355 @@
++---------------------------+
+|         CS 130            |
+| PROJECT 4: File System    |
+|     DESIGN DOCUMENT       |
++---------------------------+
+
+---- GROUP ----
+
+>> Fill in the names of your group members.
+
+Yifeng Zhang  zhangyf@shanghaitech.edu.cn
+Qiuming Sun   sunqm@shanghaitech.edu.cn
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+
+
+INDEXED AND EXTENSIBLE FILES
+============================
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+struct inode_disk
+  {
+    block_sector_t start[100];
+    block_sector_t doubly_indirect;
+    off_t length;
+    bool is_dir;
+    uint32_t unused[24];
+    unsigned magic;
+  };
+  start[100]:           Direct pointers to sectors
+  doubly_indirect:      Doubly indirect pointer
+  length:               File size in bytes
+  is_dir:               Inode belongs to directory
+  unused[24]:           Not used
+  magic:                Magic number
+
+
+  struct inode
+    {
+      struct list_elem elem;
+      block_sector_t sector;
+      int open_cnt;
+      bool removed;
+      int deny_write_cnt;
+      struct inode_disk data;
+      struct semaphore inode_lock;
+    };
+
+  struct list_elem elem:              Element in inode list.
+  block_sector_t sector:              Sector number of disk location.
+  int open_cnt:                       Number of openers.
+  bool removed:                       True if deleted, false otherwise.
+  int deny_write_cnt:                 0: writes ok, >0: deny writes.
+  struct inode_disk data:             Inode content.
+  struct semaphore inode_lock:        Lock the inode
+
+
+>> A2: What is the maximum size of a file supported by the inode
+>> structure?  Show your work.
+
+Our inode structure has one doubly indirect block. Since the disk sector size is 512 bytes, and each disk_sector_t is 4 bytes, one indirect block can store 512/4 = 128 disk_sector_t to another block. Therefore, the maximum size of a file is 128*128*512 = 8338608 bytes = 8 MB. Since we need to implement a file up to size of 8MB - metadata, one doubly indirect block should suffice.
+
+
+---- DIRECTORIES and SUBDIRECTORIES ----
+
+>> A3: How do you prevent races on directory entries?  For example,
+>> only one of two simultaneous attempts to remove a single file
+>> should succeed, as should only one of two simultaneous attempts to
+>> create a file with the same name, and so on.
+
+In our code, a process needs to acquire the lock to the file鈥檚 inode before it attempts to extend the file. Since the lock is released only when the process finishes extending the file, any other process cannot try to extend the file before one finishes. This solves the race condition when two or more processes attempt to extend a file, by ensuring exclusion in extending a file.
+
+
+>> A4: Does your implementation allow a directory to be removed if it
+>> is open by a process or if it is in use as a process's current
+>> working directory?  If so, what happens to that process's future
+>> file system operations?  If not, how do you prevent it?
+
+Our implementation checks that the directory to be removed is not the current
+working directory by checking the return value of inode_open_cnt(<this inode>).
+In a similar way, we check to make sure that we are not removing a directory that
+is otherwise in use.
+
+---- DATA STRUCTURES ----
+
+>> B1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+From filesys/inode.c
+
+struct inode_disk
+  {
+    block_sector_t start[100];
+    block_sector_t doubly_indirect;
+    off_t length;
+    bool is_dir;
+    uint32_t unused[24];
+    unsigned magic;
+  };
+  start[100]:           Direct pointers to sectors
+  doubly_indirect:      Doubly indirect pointer
+  length:               File size in bytes
+  is_dir:               Inode belongs to directory
+  unused[24]:           Not used
+  magic:                Magic number
+
+
+
+From threads/thread.h:
+
+struct thread
+  {
+    /* Owned by thread.c. */
+    tid_t tid;
+    ...
+
+    struct dir *curr_dir;
+
+    ...
+    unsigned magic;
+  };
+
+struct dir *curr_dir: the current directory that the process is in.
+
+struct file_map
+{
+  int fd;
+  struct file *file;
+  struct dir *dir;
+  bool isdir;
+  struct list_elem elem;
+};
+
+
+
+
+---- ALGORITHMS ----
+
+>> B2: Describe your code for traversing a user-specified path.  How
+>> do traversals of absolute and relative paths differ?
+
+The user-specified path is tokenized using 鈥?鈥?that separates the path.
+The traversals of absolute and relative paths differ only at the start.
+When the path starts with 鈥?鈥? then it must be an absolute path, so we
+set the starting directory as root. Otherwise, the path must be relative,
+and we set the starting directory as the process鈥檚 current directory.
+
+After that, we go through each token to traverse the path. If 鈥?鈥?is found,
+it represents the current directory so nothing is done. If 鈥?.鈥?is found, we
+change the directory to be the parent directory of the current directory.
+For all other cases, we look up the current directory for the name specified
+by the token. If the name does not exist in the current directory, then the path
+is invalid. This step is repeated until we get to the end of the given path.
+
+>> B3: Look over "pwd.c" in src/examples.  Briefly explain how it
+>> determines the present working directory.
+
+First, it opens the current directory it is in and stores the inumber of the
+current directory using get_inumber() to child_inum. Then, set char *namep to the
+beginning of char name[].
+
+Then, in an infinite loop, we append 鈥?.鈥?at location of *namep. For the first
+loop, name[] will be 鈥?.鈥? Then, we use open system call to open path in name,
+which will be the parent directory of the current directory, and append 鈥?鈥?at
+*namep, and now name[] is 鈥?./鈥? The result of open system call is stored in
+parent_fd. The inumber of opened parent_fd is stored in parent_inum.
+
+In another infinite loop, we call readdir(parent_fd, namep), which will store
+the name of entries at *namep, and name[] will be 鈥?./[name_of_entry]鈥? We call
+ get_inumber(name, &test_inum), which will get the inumber of the path stored
+ in name. We go through the loop until test_inum == child_inum, which means that
+  name[] is now 鈥?./[name_of_current_directory]鈥? Then, we prepend the name of
+  current directory to cwd. Finally, child_inum is set to parent_inum, traversing
+  upwards in the directory tree.
+
+In the outer loop, name will be set to 鈥?./../.. 鈥︹€? traversing up the directory
+ tree, and getting the parent_inum. In the inner loop, the name of the child_inum
+ will be found, and then exit the loop. Finally the name of the child directory
+ will be prepended to cwd.
+
+This continues until parent_inum == child_inum, which means that the parent directory
+is equal to child directory, which should only happen when we reached the root.
+When this happens, cwd should contain the full name of present working directory.
+The string in cwd is moved forward, and 鈥?鈥?is added to the front of the string
+to give the complete absolute path of the present directory.
+
+---- SYNCHRONIZATION ----
+
+>> B4: How do you prevent races on directory entries?  For example,
+>> only one of two simultaneous attempts to remove a single file
+>> should succeed, as should only one of two simultaneous attempts to
+>> create a file with the same name, and so on.
+
+This is prevented by using the inode_lock for the directory. In dir_lookup,
+dir_add, dir_remove and dir_readdir, which are all the cases when the system
+needs to look at the directory鈥檚 entries or change them, before any of the
+work is done, the process needs to acquire the lock to the directory鈥檚 inode.
+This means that only one process can access the directory鈥檚 entry information,
+and only one of the same attempts to remove or create a file should succeed,
+whichever does it first.
+
+>> B5: Does your implementation allow a directory to be removed if it
+>> is open by a process or if it is in use as a process's current
+>> working directory?  If so, what happens to that process's future
+>> file system operations?  If not, how do you prevent it?
+
+No. Our implementation disallows removing of an open directory or a directory
+that is being used by a process. We made use of the inode鈥檚 open_cnt to check
+if any process is using the directory. If the directory鈥檚 inode鈥檚 open_cnt
+is greater than 1, it is not allowed to be removed. If open_cnt is greater
+than 1, it means that the directory is being used by some other process than
+the removing process. The directory鈥檚 inode will always be opened by once
+during the removal process, thus the limit is set to 1.
+
+---- RATIONALE ----
+
+>> B6: Explain why you chose to represent the current directory of a
+>> process the way you did.
+
+We placed struct dir * in struct thread. It was the most natural choice of
+representing the current directory, as current directory is specific within
+ a single process. Also, using struct dir allowed us to perform all of the
+ manipulations on the current directory of the process very easily using the
+ functions implemented in filesys/directory.c.
+
+BUFFER CACHE
+============
+
+---- DATA STRUCTURES ----
+
+>> C1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+From filesys/inode.c
+
+struct cache_entry
+  {
+    bool dirty; // Used for write-back
+    bool valid; // Check if this entry is valid
+    int reference; // Used for clock algorithm
+    block_sector_t sector; // Sector number of the block below.
+    struct semaphore sector_lock; // Lock the sector to prevent concurrent read/writes.
+    void *block; // Should be malloc'd to be BLOCK_SECTOR_SIZE bytes
+  };
+
+  int clock_hand; // Default initialized to 0. Used for the clock algorithm.
+  struct cache_entry *cache[64]; // Cache sector blocks.
+  struc
+
+---- ALGORITHMS ----
+
+>> C2: Describe how your cache replacement algorithm chooses a cache
+>> block to evict.
+
+We used the clock eviction algorithm, which scans through the cache
+to find an empty slot. If none are empty, then it will begin to "unmark"
+the LRU bit of each entry. If an entry is not used again by the time our
+clock pointer gets to it again, it is flushed out from the cache and its slot
+is freed.
+>> C3: Describe your implementation of write-behind.
+
+When the cache is initialized, a write-back thread is created. The function
+of the thread is to go through the cache list and check if each cache block
+is dirty. If it is dirty, then the contents of the cache block is written
+to the disk location specified by cache block鈥檚 disk_sector. After it is
+written, the dirty bit is set to false. After going through the whole list,
+the thread sleeps for WRITE_BACK_PERIOD, which is set to 3 seconds in our
+implementation. Thus, the write-back process is repeated every 3 seconds.
+
+>> C4: Describe your implementation of read-ahead.
+
+Since read-ahead needs to be asynchronous, we created a thread to read the
+next sector of the disk. The thread will be created every time an access to
+disk occurs, fetching the next disk sector into the cache if it is not already
+in the cache.
+
+---- SYNCHRONIZATION ----
+
+>> C5: When one process is actively reading or writing data in a
+>> buffer cache block, how are other processes prevented from evicting
+>> that block?
+
+When a process is currently using a block in the cache, it possesses
+the cache lock. This prevents any other thread from evicting a block
+from the cache. In between reads and writes, though, this block can be
+evicted by another -- but this is highly unlikely, due to the second
+chance we give accessed blocks before evicting them.
+
+>> C6: During the eviction of a block from the cache, how are other
+>> processes prevented from attempting to access the block?
+
+During eviction, the process acquires cache_lock. Also, for every access to
+the cache, process needs to acquire the cache_lock. If a process is evicting
+the cache block, it must have acquired the cache_lock. No other process can
+access the cache since the lock is being held by another process. Lock is only
+released when eviction is complete, and if other processes want to get the block
+again, they need to bring it into the cache from the disk.
+
+---- RATIONALE ----
+
+>> C7: Describe a file workload likely to benefit from buffer caching,
+>> and workloads likely to benefit from read-ahead and write-behind.
+
+A file workload that benefits from buffer caching is one that repeatedly accesses
+a few number of blocks. Since buffer caching brings those blocks into memory,
+access time will reduce greatly when compared to accessing the blocks from the disk itself.
+
+Workload that benefits from read-ahead is a sequential read, such as watching
+video file. The system will asynchronously bring in subsequent blocks when a single
+block is read, and the process does not have to wait for the fetching of data from
+the disk, since the next block is already loaded in the cache.
+
+A workload that benefits from write-behind is one that keeps writing to a small
+number of blocks. The writes will be done in memory, not directly to the disks,
+and thus saves a lot of time that would have been used to access the disks.
+With write-behind, those writes can be done to the memory, and written to disk
+only once in a while, potentially saving a lot of time.
+
+			   SURVEY QUESTIONS
+			   ================
+
+Answering these questions is optional, but it will help us improve the
+course in future quarters.  Feel free to tell us anything you
+want--these questions are just to spur your thoughts.  You may also
+choose to respond anonymously in the course evaluations at the end of
+the quarter.
+
+>> In your opinion, was this assignment, or any one of the three problems
+>> in it, too easy or too hard?  Did it take too long or too little time?
+
+>> Did you find that working on a particular part of the assignment gave
+>> you greater insight into some aspect of OS design?
+
+>> Is there some particular fact or hint we should give students in
+>> future quarters to help them solve the problems?  Conversely, did you
+>> find any of our guidance to be misleading?
+
+>> Do you have any suggestions for the TAs to more effectively assist
+>> students in future quarters?
+
+>> Any other comments?

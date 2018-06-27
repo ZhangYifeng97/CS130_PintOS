@@ -40,14 +40,17 @@ void
 flush_cache (void)
 {
   lock_acquire (&cache_lock);
-  int i;
-  for (i = 0; i < 64; i++)
+  int i = 0;
+  while(i < 64)
     {
       if (cache[i])
         sema_down (&cache[i]->sector_lock);
+      i++;
     }
+  i = 0;
   lock_release (&cache_lock);
-  for (i = 0; i < 64; i++)
+
+  while(i < 64)
     {
       if (cache[i])
         {
@@ -56,22 +59,25 @@ flush_cache (void)
           cache[i]->dirty = false;
           sema_up (&cache[i]->sector_lock);
         }
+        i++;
     }
+    i = 0;
 }
 
 void
 clear_cache (void)
 {
   lock_acquire (&cache_lock);
-  int i;
-  for (i = 0; i < 64; i++)
+  int i = 0;
+  while (i < 64)
     {
-
       if (cache[i])
           sema_down (&cache[i]->sector_lock);
+      i++;
     }
+  i = 0;
   lock_release (&cache_lock);
-  for (i = 0; i < 64; i++)
+  while (i < 64)
     {
       if (cache[i])
         {
@@ -81,7 +87,9 @@ clear_cache (void)
           free (cache[i]);
           cache[i] = NULL;
         }
+      i++;
     }
+    i = 0;
   clock_hand = 0;
 }
 
@@ -114,10 +122,10 @@ get_next_cache_block_to_evict (void)
 void
 cache_get_block (block_sector_t sector, void *buffer)
 {
-  int i;
+  int i = 0;
   lock_acquire (&cache_lock);
   // Check if sector is already in the cache and return if it is.
-  for (i = 0; i < 64; i++)
+  while (i < 64)
     {
       if (cache[i] && cache[i]->sector == sector)
         {
@@ -128,7 +136,9 @@ cache_get_block (block_sector_t sector, void *buffer)
           sema_up (&cache[i]->sector_lock);
           return;
         }
+      i++;
     }
+    i = 0;
   int index = get_next_cache_block_to_evict ();
   void *block;
   struct cache_entry *entry;
@@ -162,10 +172,10 @@ cache_get_block (block_sector_t sector, void *buffer)
 void
 cache_write_block (block_sector_t sector, void *buffer)
 {
-  int i;
+  int i = 0;
   lock_acquire (&cache_lock);
   // Check if sector is already in the cache and return if it is.
-  for (i = 0; i < 64; i++)
+  while (i < 64)
     {
       if (cache[i] && cache[i]->sector == sector)
         {
@@ -177,7 +187,9 @@ cache_write_block (block_sector_t sector, void *buffer)
           sema_up (&cache[i]->sector_lock);
           return;
         }
+      i++;
     }
+    i = 0;
   int index = get_next_cache_block_to_evict ();
   void *block;
   struct cache_entry *entry;
@@ -328,8 +340,8 @@ inode_open (block_sector_t sector)
 
   /* Check whether this inode is already open. */
   lock_inode_list ();
-  for (e = list_begin (&open_inodes); e != list_end (&open_inodes);
-       e = list_next (e))
+  e = list_begin (&open_inodes);
+  while (e != list_end (&open_inodes))
     {
       inode = list_entry (e, struct inode, elem);
       sema_down (&inode->inode_lock);
@@ -341,6 +353,7 @@ inode_open (block_sector_t sector)
           return inode;
         }
       sema_up (&inode->inode_lock);
+      e = list_next (e);
     }
 
   /* Allocate memory. */
@@ -690,11 +703,11 @@ bool
 inode_resize (struct inode_disk *id, off_t size)
 {
   block_sector_t sector;
-  volatile int i;
+  volatile int i = 0;
   char zeros[BLOCK_SECTOR_SIZE];
   memset (zeros, 0, BLOCK_SECTOR_SIZE);
   // Handle direct pointers
-  for (i = 0; i < 100; i++)
+  while (i < 100)
   {
     if (size > BLOCK_SECTOR_SIZE * i && id->start[i] == 0)
       {
@@ -706,8 +719,9 @@ inode_resize (struct inode_disk *id, off_t size)
         id->start[i] = sector;
         cache_write_block (sector, zeros);
       }
+    i++;
   }
-
+  i = 0;
   // Get doubly indirect pointer table
   if (size > BLOCK_SECTOR_SIZE * 100)
     {
@@ -730,7 +744,8 @@ inode_resize (struct inode_disk *id, off_t size)
 
       // Iterate through doubly indirect pointer.
       block_sector_t singly[128];
-      for (i = 0; i < 128; i++)
+      i = 0;
+      while(i < 128)
         {
           // If we use this indirect pointer
           if (size > BLOCK_SECTOR_SIZE * 100 + i * (int) powf (2, 16))
@@ -766,6 +781,7 @@ inode_resize (struct inode_disk *id, off_t size)
                 }
               cache_write_block (doubly[i], singly);
             }
+            i++;
         }
       cache_write_block (id->doubly_indirect, doubly);
     }
